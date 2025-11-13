@@ -15,9 +15,8 @@
         android:usesPermissionFlags="neverForLocation"
          />
 
-    <!-- 定位权限
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>  -->
+    <!--<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>  -->
 
     <!-- Wi-Fi权限 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>

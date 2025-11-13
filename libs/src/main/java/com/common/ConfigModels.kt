@@ -129,6 +129,12 @@ data class DeviceInfo(
     val deviceId: String,      // 设备ID - 用于显示的设备标识
     val macAddress: String,    // MAC地址 - 用于匹配历史配网记录
     val rssi: Int = -255,            // 信号强度,默认值 =-255即没有获取
+    val nearbyWiFiNetworks: List<NearbyWifiNetwork> = emptyList() // 周边Wi-Fi扫描结果
+) : Serializable
+
+data class NearbyWifiNetwork(
+    val ssid: String,
+    val rssi: Int? = null
 ) : Serializable
 
 // B. A厂(雷达)专有数据结构

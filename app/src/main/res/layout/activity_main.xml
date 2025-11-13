@@ -50,9 +50,9 @@
             android:layout_width="20dp"
             android:layout_height="20dp"/>
 
-        <!-- Status 按钮 -->
+        <!-- Query 按钮 -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_status"
+            android:id="@+id/btn_query"
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:text="@string/btn_status"
@@ -184,69 +184,6 @@
         </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
 
-    <!-- 历史记录区域 - 服务器和WiFi在同一行 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <!-- 服务器历史记录 -->
-        <LinearLayout
-            android:id="@+id/layout_server_history"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="@dimen/spacing_small"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground">
-
-            <com.google.android.material.textview.MaterialTextView
-                android:id="@+id/tv_recent_server"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/recent_servers"
-                android:textSize="@dimen/text_caption"
-                android:drawablePadding="@dimen/spacing_small"
-                android:gravity="center_vertical"
-                android:textColor="@color/text_secondary"/>
-        </LinearLayout>
-
-        <!-- 分隔线 -->
-        <View
-            android:layout_width="1dp"
-            android:layout_height="24dp"
-            android:background="@color/text_secondary"
-            android:alpha="0.2"/>
-
-        <!-- WiFi历史记录 -->
-        <LinearLayout
-            android:id="@+id/layout_wifi_history"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="8dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground">
-
-            <com.google.android.material.textview.MaterialTextView
-                android:id="@+id/tv_recent_wifi"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/recent_networks"
-                android:textSize="@dimen/text_caption"
-                android:drawablePadding="@dimen/spacing_small"
-                android:gravity="center_vertical"
-                android:textColor="@color/text_secondary"/>
-        </LinearLayout>
-    </LinearLayout>
-
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -292,6 +229,67 @@
                 android:inputType="textPassword"/>
         </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_history_headers"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="@dimen/spacing_small">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/tv_recent_server"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingHorizontal="@dimen/spacing_small"
+            android:paddingVertical="@dimen/spacing_tiny"
+            android:gravity="center_vertical"
+            android:text="@string/recent_servers"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_caption"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="24dp"
+            android:background="@color/text_secondary"
+            android:alpha="0.2" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/tv_recent_wifi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingHorizontal="@dimen/spacing_small"
+            android:paddingVertical="@dimen/spacing_tiny"
+            android:gravity="center_vertical"
+            android:text="@string/recent_networks"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_caption"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_server_history"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_tiny"
+        android:nestedScrollingEnabled="false"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_wifi_history"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_tiny"
+        android:nestedScrollingEnabled="false"
+        android:visibility="gone" />
 
     <!-- Status Display -->
     <TextView

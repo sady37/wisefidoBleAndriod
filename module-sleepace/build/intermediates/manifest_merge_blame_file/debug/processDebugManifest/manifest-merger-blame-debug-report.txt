@@ -1,0 +1,65 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<!-- 文件: module-sleepboard/src/main/AndroidManifest.xml -->
+3<!-- 功能: 定义module-sleepboard模块的Android清单文件,配置权限和组件 -->
+4<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+5    xmlns:tools="http://schemas.android.com/tools"
+6    package="com.bleconfig.sleepace" >
+7
+8    <uses-sdk android:minSdkVersion="31" />
+9
+10    <!-- 基础蓝牙权限 -->
+11    <uses-permission
+11-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:8:5-9:38
+12        android:name="android.permission.BLUETOOTH"
+12-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:8:22-65
+13        android:maxSdkVersion="30" />
+13-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:9:9-35
+14    <uses-permission
+14-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:10:5-11:38
+15        android:name="android.permission.BLUETOOTH_ADMIN"
+15-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:10:22-71
+16        android:maxSdkVersion="30" />
+16-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:11:9-35
+17
+18    <!-- Android 12+ 蓝牙权限 -->
+19    <uses-permission
+19-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:14:5-16:31
+20        android:name="android.permission.BLUETOOTH_SCAN"
+20-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:14:22-70
+21        android:usesPermissionFlags="neverForLocation"
+21-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:15:9-55
+22        tools:targetApi="s" />
+22-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:16:9-28
+23    <uses-permission
+23-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:17:5-19:31
+24        android:name="android.permission.BLUETOOTH_CONNECT"
+24-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:17:22-73
+25        android:usesPermissionFlags="neverForLocation"
+25-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:18:9-55
+26        tools:targetApi="s" />
+26-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:19:9-28
+27
+28    <!-- 定位权限 -->
+29    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+29-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:22:5-79
+29-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:22:22-76
+30    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+30-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:23:5-81
+30-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:23:22-78
+31
+32    <!-- BLE特性声明 -->
+33    <uses-feature
+33-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:26:5-28:35
+34        android:name="android.hardware.bluetooth_le"
+34-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:27:9-53
+35        android:required="true" />
+35-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:28:9-32
+36
+37    <!-- 该模块可能包含的Activities -->
+38    <application>
+38-->/Users/sady3721/project/bleconfigforAndriod/module-sleepace/src/main/AndroidManifest.xml:31:5-33:19
+39
+40        <!-- 如果有自定义Activity则在此声明 -->
+41    </application>
+42
+43</manifest>

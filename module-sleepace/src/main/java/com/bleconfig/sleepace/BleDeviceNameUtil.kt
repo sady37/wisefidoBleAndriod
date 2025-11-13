@@ -43,7 +43,7 @@ object BleAdvUtil {
         // 返回结果日志
         return data?.let {
             String(it).also { name ->
-                Log.d(TAG, "Decoded device name: '$name'")
+                //Log.d(TAG, "Decoded device name: '$name'")
             }
         }
     }

@@ -1522,7 +1522,7 @@ class BlufiClientImpl implements BlufiParameter {
             }
         }
 
-       @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+       @androidx.annotation.RequiresApi(Build.VERSION_CODES.LOLLIPOP)
         public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 mBlufiMTU = mtu - 4; // Three bytes BLE header, one byte reserved
@@ -1534,14 +1534,14 @@ class BlufiClientImpl implements BlufiParameter {
             }
         }
 
-        @TargetApi(Build.VERSION_CODES.O)
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
         public void onPhyUpdate(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
             if (mUserGattCallback != null) {
                 mUserGattCallback.onPhyUpdate(gatt, txPhy, rxPhy, status);
             }
         }
 
-        @TargetApi(Build.VERSION_CODES.O)
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
         public void onPhyRead(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
             if (mUserGattCallback != null) {
                 mUserGattCallback.onPhyRead(gatt, txPhy, rxPhy, status);

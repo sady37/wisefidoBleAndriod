@@ -4,8 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
-import com.common.DeviceInfo
-import com.common.Productor
+
 import com.common.FilterType
 import com.common.DeviceHistory
 import com.common.ServerConfig
@@ -13,14 +12,86 @@ import com.common.WifiConfig
 import com.common.DefaultConfig
 import android.util.Log
 
+// 文件顶部必须包含以下导入
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+
+
 
 class ConfigStorage(context: Context) {
     private val prefs = context.getSharedPreferences("ble_config", Context.MODE_PRIVATE)
     private val gson = Gson()
 
+    // ==================================================================
+    // 新增的密码加密工具类（直接嵌入在 ConfigStorage 内部，无需额外文件）
+    // ==================================================================
+    private object WifiPasswordCrypto {
+        private const val AES_ALGORITHM = "AES/GCM/NoPadding"
+        private const val KEY_ALIAS = "WiseFido_Wifi_Key"
+
+        // 获取或生成 AES 密钥（通过 AndroidKeyStore 安全存储）
+        private fun getKey(): SecretKey {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            return if (keyStore.containsAlias(KEY_ALIAS)) {
+                (keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
+            } else {
+                KeyGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_AES,
+                    "AndroidKeyStore"
+                ).apply {
+                    init(
+                        KeyGenParameterSpec.Builder(
+                            KEY_ALIAS,
+                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                        ).apply {
+                            setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                            setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                            setKeySize(256)
+                        }.build()
+                    )
+                }.generateKey()
+            }
+        }
+
+        // 加密密码
+        fun encrypt(plainPassword: String): String {
+            return try {
+                val cipher = Cipher.getInstance(AES_ALGORITHM)
+                cipher.init(Cipher.ENCRYPT_MODE, getKey())
+                val iv = cipher.iv
+                val encryptedBytes = cipher.doFinal(plainPassword.toByteArray())
+                Base64.encodeToString(encryptedBytes + iv, Base64.DEFAULT)
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
+        // 解密密码
+        fun decrypt(encryptedPassword: String): String {
+            return try {
+                val decodedBytes = Base64.decode(encryptedPassword, Base64.DEFAULT)
+                val iv = decodedBytes.copyOfRange(decodedBytes.size - 12, decodedBytes.size)
+                val cipher = Cipher.getInstance(AES_ALGORITHM)
+                val spec = GCMParameterSpec(128, iv)
+                cipher.init(Cipher.DECRYPT_MODE, getKey(), spec)
+                val decryptedBytes = cipher.doFinal(decodedBytes.copyOfRange(0, decodedBytes.size - 12))
+                String(decryptedBytes)
+            } catch (e: Exception) {
+                // 兼容旧版本或明文存储的历史数据
+                encryptedPassword
+            }
+        }
+    }
+
     // 保存服务器配置
     fun saveServerConfig(serverConfig: ServerConfig) {
-        Log.d("ConfigStorage", "Saving server config: ${serverConfig.serverAddress}:${serverConfig.port}")
+        //Log.d("ConfigStorage", "Saving server config: ${serverConfig.serverAddress}:${serverConfig.port}")
 
         val servers = getServerConfigs().toMutableList()
 
@@ -31,9 +102,8 @@ class ConfigStorage(context: Context) {
         servers.add(0, serverConfig)
 
         // 保持最多 5 条记录
-        if (servers.size >= 5) {
-            Log.d("ConfigStorage", "Found ${servers.size} configs, removing last one: ${servers.last().serverAddress}:${servers.last().port}")
-            servers.removeAt(servers.lastIndex)
+        if (servers.size > 5) {
+            servers.subList(5, servers.size).clear()
         }
 
         // 保存到 SharedPreferences
@@ -41,9 +111,7 @@ class ConfigStorage(context: Context) {
             putString(KEY_SERVER_CONFIGS, gson.toJson(servers))
             apply()
         }
-        // 验证保存结果
-        val savedConfigs = getServerConfigs()
-        Log.d("ConfigStorage", "After save, configs: ${savedConfigs.map { "${it.serverAddress}:${it.port}" }}")
+
     }
 
     // 获取服务器配置
@@ -56,22 +124,34 @@ class ConfigStorage(context: Context) {
 
     // 保存 Wi-Fi 配置
     fun saveWifiConfig(wifiConfig: WifiConfig) {
-        val wifis = getWifiConfigs().toMutableList()
+        // 1. 创建加密后的配置对象（关键一步）
+        val encryptedPassword = WifiPasswordCrypto.encrypt(wifiConfig.password)
+        val encryptedConfig = wifiConfig.copy(
+            password = if (encryptedPassword.isEmpty() && wifiConfig.password.isNotEmpty()) {
+                wifiConfig.password
+            } else {
+                encryptedPassword
+            }
+        )
 
-        // 移除相同配置
-        wifis.removeAll { it.ssid == wifiConfig.ssid }
+        val existing = getWifiConfigs()
+            .filter { it.ssid != wifiConfig.ssid }
+            .take(4) // 新记录占据第一个，其余最多保留 4 条
 
-        // 添加到开头
-        wifis.add(0, wifiConfig)
-
-        // 保持最多 5 条记录
-        if (wifis.size > 5) {
-            wifis.removeAt(wifis.lastIndex)
+        val encryptedExisting = existing.map {
+            val encPwd = WifiPasswordCrypto.encrypt(it.password)
+            it.copy(
+                password = if (encPwd.isEmpty() && it.password.isNotEmpty()) it.password else encPwd
+            )
         }
+
+        val finalList = mutableListOf<WifiConfig>()
+        finalList.add(encryptedConfig)
+        finalList.addAll(encryptedExisting)
 
         // 保存到 SharedPreferences
         prefs.edit().apply {
-            putString(KEY_WIFI_CONFIGS, gson.toJson(wifis))
+            putString(KEY_WIFI_CONFIGS, gson.toJson(finalList))
             apply()
         }
     }
@@ -80,7 +160,16 @@ class ConfigStorage(context: Context) {
     fun getWifiConfigs(): List<WifiConfig> {
         val json = prefs.getString(KEY_WIFI_CONFIGS, "[]") ?: "[]"
         val type = object : TypeToken<List<WifiConfig>>() {}.type
-        return gson.fromJson(json, type)
+        //return gson.fromJson(json, type)
+
+        val encryptedList: List<WifiConfig> = gson.fromJson(json, type)
+        // 仅解密密码字段，其他字段直接保留
+        return encryptedList.map { config ->
+            config.copy(
+                password = WifiPasswordCrypto.decrypt(config.password)
+                // ssid/serverAddress/port 等字段保持原始值
+            )
+        }
     }
 
     // 保存配网成功的设备记录
@@ -110,9 +199,43 @@ class ConfigStorage(context: Context) {
         Log.d("ConfigStorage", "All server configs cleared")
     }
 
+    fun removeServerConfig(serverConfig: ServerConfig) {
+        val json = prefs.getString(KEY_SERVER_CONFIGS, "[]") ?: "[]"
+        val type = object : TypeToken<List<ServerConfig>>() {}.type
+        val servers = gson.fromJson<List<ServerConfig>>(json, type)?.toMutableList() ?: mutableListOf()
+
+        val removed = servers.removeAll {
+            it.serverAddress == serverConfig.serverAddress &&
+                    it.port == serverConfig.port &&
+                    it.protocol.equals(serverConfig.protocol, ignoreCase = true)
+        }
+
+        if (removed) {
+            prefs.edit().apply {
+                putString(KEY_SERVER_CONFIGS, gson.toJson(servers))
+                apply()
+            }
+        }
+    }
+
     fun clearWifiConfigs() {
         prefs.edit().remove(KEY_WIFI_CONFIGS).apply()
         Log.d("ConfigStorage", "All server configs cleared")
+    }
+
+    fun removeWifiConfig(ssid: String) {
+        val json = prefs.getString(KEY_WIFI_CONFIGS, "[]") ?: "[]"
+        val type = object : TypeToken<List<WifiConfig>>() {}.type
+        val wifiList = gson.fromJson<List<WifiConfig>>(json, type)?.toMutableList() ?: mutableListOf()
+
+        val removed = wifiList.removeAll { it.ssid == ssid }
+
+        if (removed) {
+            prefs.edit().apply {
+                putString(KEY_WIFI_CONFIGS, gson.toJson(wifiList))
+                apply()
+            }
+        }
     }
 
     // 获取配网成功的设备记录

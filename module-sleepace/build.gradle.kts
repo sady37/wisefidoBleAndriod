@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.bleconfig.sleepace"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 31  //28
@@ -29,12 +29,14 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "1.8"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 }
 
@@ -46,11 +48,6 @@ dependencies {
     api(files("../libs/wificonfigsdk.jar"))
     //api(files("libs/android-support-v4.jar"))
 
-    // AndroidX 支持库 (替代原来的 android-support-v4.jar)
-    implementation("androidx.core:core-ktx:1.7.0")
-    implementation("androidx.appcompat:appcompat:1.4.1")
-
-    // Android 基础库
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.material)

@@ -16,54 +16,46 @@
 
 package com.wisefido
 
-// Android 标准库
+import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.le.ScanResult
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.InputFilter
+import android.text.method.ScrollingMovementMethod
+import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
-import android.widget.PopupMenu
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.common.BleDeviceManager
+import com.common.DeviceHistory
+import com.common.DeviceInfo
+import com.common.Productor
+import com.common.ServerConfig
+import com.common.WifiConfig
+import com.bleconfig.sleepace.SleepaceBleManager
+import com.espressif.espblufi.RadarBleManager
+import com.google.gson.Gson
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textview.MaterialTextView
-import android.util.Log
-import android.os.Build
-import android.Manifest
-import android.content.pm.PackageManager
-import android.widget.TextView
-import android.widget.ImageButton  // [新增] 解决ImageButton未定义的问题
-
-
-import android.text.InputFilter
+import com.sleepace.sdk.constant.StatusCode
+import com.sleepace.sdk.domain.BleDevice
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.bluetooth.le.ScanResult
-import android.os.Handler
-import android.os.Looper
-
-
-//common data type
-import com.common.DeviceInfo
-import com.common.Productor
-import com.common.DeviceHistory
-import com.common.ServerConfig
-import com.common.WifiConfig
-import com.common.BleDeviceManager
-
-// A厂 SDK
-import com.espressif.espblufi.RadarBleManager
-
-
-// B厂 SDK
-import com.sleepace.sdk.constant.StatusCode
-import com.sleepace.sdk.domain.BleDevice
-import com.bleconfig.sleepace.SleepaceBleManager
-
-
-//自已的引用
 
 
 class MainActivity : AppCompatActivity() {
@@ -89,11 +81,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etWifiSsid: TextInputEditText
     private lateinit var etWifiPassword: TextInputEditText
     private lateinit var btnPair: MaterialButton
-    private lateinit var btnStatus: MaterialButton
+    private lateinit var btnQuery: MaterialButton
     private lateinit var tvRecentServer: MaterialTextView
     private lateinit var tvRecentWifi: MaterialTextView
-    private lateinit var layoutServerHistory: View
-    private lateinit var layoutWifiHistory: View
+    private lateinit var rvServerHistory: RecyclerView
+    private lateinit var rvWifiHistory: RecyclerView
+    private lateinit var serverHistoryAdapter: ServerHistoryAdapter
+    private lateinit var wifiHistoryAdapter: WifiHistoryAdapter
+    private var isServerHistoryExpanded = false
+    private var isWifiHistoryExpanded = false
     private lateinit var tvDeviceName: TextView
     private lateinit var tvDeviceId: TextView
     private lateinit var tvDeviceRssi: TextView
@@ -121,7 +117,7 @@ class MainActivity : AppCompatActivity() {
                     intent.getSerializableExtra(ScanActivity.EXTRA_DEVICE_INFO) as? DeviceInfo
                 }
 
-                Log.d(TAG, "Received DeviceInfo: ${deviceInfo?.deviceName}")
+                Log.d(TAG, "Received DeviceInfo}")
                 selectedDevice = deviceInfo
                 updateDeviceDisplay(deviceInfo)
             }
@@ -176,28 +172,64 @@ class MainActivity : AppCompatActivity() {
         etWifiSsid = findViewById(R.id.et_wifi_ssid)
         etWifiPassword = findViewById(R.id.et_wifi_password)
         btnPair = findViewById(R.id.btn_pair)
-        btnStatus = findViewById(R.id.btn_status)
+        btnQuery = findViewById(R.id.btn_query)
         tvRecentServer = findViewById(R.id.tv_recent_server)
         tvRecentWifi = findViewById(R.id.tv_recent_wifi)
-        layoutServerHistory = findViewById(R.id.layout_server_history)
-        layoutWifiHistory = findViewById(R.id.layout_wifi_history)
         tvDeviceName = findViewById(R.id.tv_device_name)
         tvDeviceId = findViewById(R.id.tv_device_id)
         tvDeviceRssi = findViewById(R.id.tv_device_rssi)  // 添加 RSSI TextView
         layoutDeviceInfo = findViewById(R.id.layout_device_info)
         btnSearch = findViewById(R.id.btn_search)
         tvStatusOutput = findViewById(R.id.tv_status_output)
+        tvStatusOutput.movementMethod = ScrollingMovementMethod.getInstance()
+        rvServerHistory = findViewById(R.id.rv_server_history)
+        rvWifiHistory = findViewById(R.id.rv_wifi_history)
+
+        serverHistoryAdapter = ServerHistoryAdapter(
+            onSelect = { server ->
+                etServerAddress.setText(server.serverAddress)
+                etServerPort.setText("${server.protocol}${server.port}")
+                collapseServerHistory()
+            },
+            onDelete = { server ->
+                configScan.removeServerConfig(server)
+                showMessage(getString(R.string.toast_history_deleted))
+                loadRecentConfigs()
+            }
+        )
+        rvServerHistory.layoutManager = LinearLayoutManager(this)
+        rvServerHistory.adapter = serverHistoryAdapter
+        attachServerHistorySwipe()
+
+        wifiHistoryAdapter = WifiHistoryAdapter(
+            onSelect = { wifi ->
+                etWifiSsid.setText(wifi.ssid)
+                etWifiPassword.setText(wifi.password)
+                collapseWifiHistory()
+            },
+            onDelete = { wifi ->
+                configScan.removeWifiConfig(wifi.ssid)
+                showMessage(getString(R.string.toast_history_deleted))
+                loadRecentConfigs()
+            }
+        )
+        rvWifiHistory.layoutManager = LinearLayoutManager(this)
+        rvWifiHistory.adapter = wifiHistoryAdapter
+
 
         // 添加输入过滤器，去除空格
         val noSpaceFilter = InputFilter { source, start, end, dest, dstart, dend ->
             source.toString().trim { it <= ' ' }
         }
 
+        // 添加SSID长度限制过滤器（最大32字节）
+        val ssidLengthFilter = InputFilter.LengthFilter(32)
+
         // 应用到所有输入框
         etServerAddress.filters = arrayOf(noSpaceFilter)
         etServerPort.filters = arrayOf(noSpaceFilter)
-        etWifiSsid.filters = arrayOf(noSpaceFilter)
-        etWifiPassword.filters = arrayOf(noSpaceFilter)
+        etWifiSsid.filters = arrayOf(ssidLengthFilter) // 只限制长度，允许空格
+        etWifiPassword.filters = arrayOf() // 不应用任何过滤器，允许所有字符包括空格
 
         // 初始隐藏设备信息区域
         //layoutDeviceInfo.visibility = View.GONE
@@ -212,18 +244,12 @@ class MainActivity : AppCompatActivity() {
 
         }
 
-        btnStatus.setOnClickListener {
+        btnQuery.setOnClickListener {
             handleStatusClick()
         }
 
-        // 历史记录点击事件
-        layoutServerHistory.setOnClickListener {
-            showServerHistoryMenu(it)
-        }
-
-        layoutWifiHistory.setOnClickListener {
-            showWifiHistoryMenu(it)
-        }
+        tvRecentServer.setOnClickListener { toggleServerHistory() }
+        tvRecentWifi.setOnClickListener { toggleWifiHistory() }
 
         // 设置历史记录标题的时钟图标
         val clockDrawable = ContextCompat.getDrawable(this, R.drawable.ic_history_24)
@@ -245,57 +271,216 @@ class MainActivity : AppCompatActivity() {
     // endregion
 
     // region 历史记录管理
-    @SuppressLint("SetTextI18n")
-    private fun showServerHistoryMenu(anchor: View) {
-        val recentServers = configScan.getServerConfigs().take(5)
-        if (recentServers.isEmpty()) return
+    private fun attachServerHistorySwipe() {
+        val callback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
 
-        PopupMenu(this, anchor).apply {
-            recentServers.forEach { server ->
-                menu.add("${server.serverAddress}:${server.protocol}${server.port}")
-                    .setOnMenuItemClickListener {
-                        etServerAddress.setText(server.serverAddress)
-                        etServerPort.setText("${server.protocol}${server.port}")
-                        true
-                    }
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.bindingAdapterPosition
+                val target = serverHistoryAdapter.getItem(position)
+                if (target != null) {
+                    configScan.removeServerConfig(target)
+                    showMessage(getString(R.string.toast_history_deleted))
+                }
+                loadRecentConfigs()
+                collapseServerHistory()
             }
-            show()
         }
-    }
-
-    private fun showWifiHistoryMenu(anchor: View) {
-        val recentWifis = configScan.getWifiConfigs().take(5)
-        if (recentWifis.isEmpty()) return
-
-        PopupMenu(this, anchor).apply {
-            recentWifis.forEach { wifi ->
-                menu.add(wifi.ssid.toString())
-                    .setOnMenuItemClickListener {
-                        etWifiSsid.setText(wifi.ssid.toString())
-                        etWifiPassword.setText(wifi.password)
-                        true
-                    }
-            }
-            show()
-        }
+        ItemTouchHelper(callback).attachToRecyclerView(rvServerHistory)
     }
 
     private fun loadRecentConfigs() {
         val recentServers = configScan.getServerConfigs()
-
+        serverHistoryAdapter.submitList(recentServers)
         if (recentServers.isNotEmpty()) {
             tvRecentServer.text = getString(R.string.recent_servers_count, recentServers.size.coerceAtMost(5))
-            layoutServerHistory.visibility = View.VISIBLE
+            tvRecentServer.isEnabled = true
+            tvRecentServer.alpha = 1f
+            rvServerHistory.visibility = if (isServerHistoryExpanded) View.VISIBLE else View.GONE
         } else {
-            layoutServerHistory.visibility = View.GONE
+            tvRecentServer.text = getString(R.string.no_recent_servers)
+            tvRecentServer.isEnabled = false
+            tvRecentServer.alpha = 0.6f
+            collapseServerHistory()
         }
 
         val recentWifis = configScan.getWifiConfigs()
+        wifiHistoryAdapter.submitList(recentWifis)
         if (recentWifis.isNotEmpty()) {
             tvRecentWifi.text = getString(R.string.recent_networks_count, recentWifis.size.coerceAtMost(5))
-            layoutWifiHistory.visibility = View.VISIBLE
+            tvRecentWifi.isEnabled = true
+            tvRecentWifi.alpha = 1f
+            rvWifiHistory.visibility = if (isWifiHistoryExpanded) View.VISIBLE else View.GONE
         } else {
-            layoutWifiHistory.visibility = View.GONE
+            tvRecentWifi.text = getString(R.string.no_recent_networks)
+            tvRecentWifi.isEnabled = false
+            tvRecentWifi.alpha = 0.6f
+            collapseWifiHistory()
+        }
+    }
+
+    private fun toggleServerHistory() {
+        if (serverHistoryAdapter.itemCount == 0) return
+        val newExpanded = !isServerHistoryExpanded
+        if (newExpanded) {
+            collapseWifiHistory()
+        }
+        isServerHistoryExpanded = newExpanded
+        rvServerHistory.visibility = if (newExpanded) View.VISIBLE else View.GONE
+    }
+
+    private fun toggleWifiHistory() {
+        if (wifiHistoryAdapter.itemCount == 0) return
+        val newExpanded = !isWifiHistoryExpanded
+        if (newExpanded) {
+            collapseServerHistory()
+        }
+        isWifiHistoryExpanded = newExpanded
+        rvWifiHistory.visibility = if (newExpanded) View.VISIBLE else View.GONE
+    }
+
+    private fun collapseServerHistory() {
+        if (isServerHistoryExpanded || rvServerHistory.visibility != View.GONE) {
+            isServerHistoryExpanded = false
+            rvServerHistory.visibility = View.GONE
+        }
+    }
+
+    private fun collapseWifiHistory() {
+        if (isWifiHistoryExpanded || rvWifiHistory.visibility != View.GONE) {
+            isWifiHistoryExpanded = false
+            rvWifiHistory.visibility = View.GONE
+        }
+    }
+
+    private inner class ServerHistoryAdapter(
+        private val onSelect: (ServerConfig) -> Unit,
+        private val onDelete: (ServerConfig) -> Unit
+    ) : RecyclerView.Adapter<ServerHistoryAdapter.ServerHistoryViewHolder>() {
+
+        private val items = mutableListOf<ServerConfig>()
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ServerHistoryViewHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_history_server, parent, false)
+            return ServerHistoryViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: ServerHistoryViewHolder, position: Int) {
+            holder.bind(items[position])
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        fun submitList(data: List<ServerConfig>) {
+            items.clear()
+            items.addAll(data.take(5))
+            notifyDataSetChanged()
+        }
+
+        fun getItem(position: Int): ServerConfig? = items.getOrNull(position)
+
+        inner class ServerHistoryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+            private val deleteButton: TextView = itemView.findViewById(R.id.btn_delete_server)
+            private val summaryView: TextView = itemView.findViewById(R.id.tv_server_summary)
+
+            fun bind(server: ServerConfig) {
+                val protocol = server.protocol.uppercase(Locale.getDefault())
+                val summary = "${server.serverAddress} / $protocol ${server.port}"
+                summaryView.text = summary
+                itemView.setOnClickListener { onSelect(server) }
+                deleteButton.setOnClickListener { onDelete(server) }
+            }
+        }
+    }
+
+    private inner class WifiHistoryAdapter(
+        private val onSelect: (WifiConfig) -> Unit,
+        private val onDelete: (WifiConfig) -> Unit
+    ) : RecyclerView.Adapter<WifiHistoryAdapter.WifiHistoryViewHolder>() {
+
+        private val items = mutableListOf<WifiConfig>()
+        private var revealedPosition: Int? = null
+        private val revealHandler = Handler(Looper.getMainLooper())
+        private var pendingResetRunnable: Runnable? = null
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): WifiHistoryViewHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_history_wifi, parent, false)
+            return WifiHistoryViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: WifiHistoryViewHolder, position: Int) {
+            holder.bind(items[position], position == revealedPosition)
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        fun submitList(data: List<WifiConfig>) {
+            items.clear()
+            items.addAll(data.take(5))
+            resetRevealState()
+            notifyDataSetChanged()
+        }
+
+        fun getItem(position: Int): WifiConfig? = items.getOrNull(position)
+
+        inner class WifiHistoryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+            private val summaryView: TextView = itemView.findViewById(R.id.tv_wifi_summary)
+            private val deleteButton: TextView = itemView.findViewById(R.id.btn_delete)
+            private val revealButton: ImageButton = itemView.findViewById(R.id.btn_reveal)
+
+            fun bind(wifi: WifiConfig, showPassword: Boolean) {
+                summaryView.text = buildSummaryText(wifi, showPassword)
+                itemView.setOnClickListener { onSelect(wifi) }
+                deleteButton.setOnClickListener { onDelete(wifi) }
+                revealButton.setOnClickListener {
+                    val position = bindingAdapterPosition
+                    if (position != RecyclerView.NO_POSITION) {
+                        revealPasswordTemporarily(position)
+                    }
+                }
+                revealButton.isEnabled = !showPassword
+                revealButton.alpha = if (showPassword) 0.4f else 1f
+            }
+        }
+
+        private fun buildSummaryText(wifi: WifiConfig, isRevealed: Boolean): String {
+            val passwordDisplay = when {
+                wifi.password.isEmpty() -> getString(R.string.history_wifi_password_empty)
+                isRevealed -> wifi.password
+                else -> "*****"
+            }
+            return "${wifi.ssid} / $passwordDisplay"
+        }
+
+        private fun revealPasswordTemporarily(position: Int) {
+            val previous = revealedPosition
+            if (previous == position) return
+
+            previous?.let { notifyItemChanged(it) }
+            revealedPosition = position
+            notifyItemChanged(position)
+
+            pendingResetRunnable?.let { revealHandler.removeCallbacks(it) }
+            val runnable = Runnable {
+                if (revealedPosition == position) {
+                    revealedPosition = null
+                    notifyItemChanged(position)
+                }
+            }
+            pendingResetRunnable = runnable
+            revealHandler.postDelayed(runnable, 3000L)
+        }
+
+        private fun resetRevealState() {
+            revealedPosition = null
+            pendingResetRunnable?.let { revealHandler.removeCallbacks(it) }
+            pendingResetRunnable = null
         }
     }
     // endregion
@@ -394,51 +579,10 @@ class MainActivity : AppCompatActivity() {
      */
     @SuppressLint("MissingPermission", "SetTextI18x")
     private fun configureRadarWiFi() {
-        val deviceAdd = selectedDevice?.macAddress ?: return
+        val deviceMac = selectedDevice?.macAddress ?: return
         val wifiConfig = getCurrentWifiConfig() ?: return
-        val ssidString = wifiConfig.ssid
-        val password = wifiConfig.password
-        val radarManager = RadarBleManager.getInstance(this)
-
-        // 显示进度对话框
-        showMessage("Connecting to device...")
-        tvStatusOutput.text = "Starting wifi configuration..."
-        //tvStatusOutput.text = "${tvStatusOutput.text}\nDevice connected successfully"
-        val currentText = tvStatusOutput.text.toString()
-        // 创建新的字符串并设置
-        tvStatusOutput.text = getString(R.string.status_text_with_connection, currentText)
-
-
-        radarManager.configureWifi(deviceAdd, ssidString, password) { result ->
-            // 处理结果
-            val success = result["success"]?.toBoolean() ?: false
-
-            if (success) {
-                configScan.saveWifiConfig(wifiConfig)
-                // 更新状态输出
-                //tvStatusOutput.text = "${tvStatusOutput.text}\nWiFi configuration successful"
-                val deviceConnectedText = tvStatusOutput.text.toString()
-                tvStatusOutput.text = getString(R.string.status_text_with_device_connected, deviceConnectedText)
-
-                // 处理结果
-                handleConfigResult(true)
-                // 显示弹窗提示
-                showMessage("WiFi configuration successful")
-                // 检查是否需要配置服务器，增加时延到3秒
-                if (getCurrentServerConfig() != null) {
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        configureRadarServer()
-                    }, 3000) // 3秒延时
-                }
-            }else{
-                // 更新状态输出
-                //tvStatusOutput.text = "${tvStatusOutput.text}\nWiFi configuration failed"
-                val wifiConfigText = tvStatusOutput.text.toString()
-                tvStatusOutput.text = getString(R.string.status_text_with_wifi_success, wifiConfigText)
-                // 显示弹窗提示
-                showMessage("WiFi configuration failed")
-            }
-        }
+        showMessage("Initializing connection...")
+        performRadarWifiConfiguration(deviceMac, wifiConfig)
     }
 
     /**
@@ -448,19 +592,58 @@ class MainActivity : AppCompatActivity() {
     private fun configureRadarServer() {
         val device = selectedDevice ?: return
         val serverConfig = getCurrentServerConfig() ?: return
+        showMessage("Initializing connection...")
+        performRadarServerConfiguration(device, serverConfig)
+    }
+
+    private fun performRadarWifiConfiguration(deviceMac: String, wifiConfig: WifiConfig) {
         val radarManager = RadarBleManager.getInstance(this)
+        val ssidString = wifiConfig.ssid
+        val password = wifiConfig.password
 
-        // 显示进度对话框
-        showMessage("Connecting to device...")
-        tvStatusOutput.text = "Starting server configuration..."
+        tvStatusOutput.text = "Starting wifi configuration..."
+        val currentText = tvStatusOutput.text.toString()
+        tvStatusOutput.text = getString(R.string.status_text_with_connection, currentText)
 
-        // 配置服务器 - 移除嵌套调用
-        radarManager.configureServer(device, serverConfig) { result ->
-            // 处理结果
+        radarManager.configureWifi(deviceMac, ssidString, password) { result ->
             val success = result["success"]?.toBoolean() ?: false
 
-            //tvStatusOutput.text = "${tvStatusOutput.text}\nServer configuration ${if (success) "successful" else "failed"}!"
+            result["warmupStatus"]?.let { warmup ->
+                appendStatusLine("Warmup status: $warmup")
+            }
+
+            if (success) {
+                configScan.saveWifiConfig(wifiConfig)
+                val deviceConnectedText = tvStatusOutput.text.toString()
+                tvStatusOutput.text = getString(R.string.status_text_with_device_connected, deviceConnectedText)
+                handleConfigResult(true)
+                showMessage("WiFi configuration successful")
+                if (getCurrentServerConfig() != null) {
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        configureRadarServer()
+                    }, 3000)
+                }
+            } else {
+                val wifiConfigText = tvStatusOutput.text.toString()
+                tvStatusOutput.text = getString(R.string.status_text_with_wifi_failed, wifiConfigText)
+                showMessage("WiFi configuration failed")
+            }
+        }
+    }
+
+    private fun performRadarServerConfiguration(device: DeviceInfo, serverConfig: ServerConfig) {
+        val radarManager = RadarBleManager.getInstance(this)
+        tvStatusOutput.text = "Starting server configuration..."
+
+        radarManager.configureServer(device, serverConfig) { result ->
+            val success = result["success"]?.toBoolean() ?: false
+
+            result["warmupStatus"]?.let { warmup ->
+                appendStatusLine("Warmup status: $warmup")
+            }
+
             val serverConfigText = tvStatusOutput.text.toString()
+
             if (success) {
                 tvStatusOutput.text = getString(R.string.status_text_with_server_success, serverConfigText)
             } else {
@@ -468,16 +651,19 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (success) {
-                // 保存服务器配置
                 configScan.saveServerConfig(serverConfig)
-                // 处理结果
                 handleConfigResult(true)
-                // 显示弹窗提示
                 showMessage("Server configuration successful")
-
             } else {
                 showMessage("Server configuration failed")
             }
+        }
+    }
+
+    private fun appendStatusLine(message: String) {
+        runOnUiThread {
+            val current = tvStatusOutput.text.toString()
+            tvStatusOutput.text = if (current.isEmpty()) message else "$current\n$message"
         }
     }
 
@@ -534,7 +720,7 @@ class MainActivity : AppCompatActivity() {
                             handleConfigResult(true)
                             if (callbackData.result is DeviceInfo) {
                                 val deviceInfo = callbackData.result as DeviceInfo
-                                Log.d(TAG, "WiFi configuration successful - Device ID: ${deviceInfo.deviceId}")
+                                Log.d(TAG, "WiFi configuration successful}")
                             }
                             showMessage("""
                                 WiFi configuration successful.
@@ -610,102 +796,69 @@ class MainActivity : AppCompatActivity() {
     //@SuppressLint("MissingPermission")
     private fun queryRadarStatus() {
         val deviceInfo = selectedDevice ?: return
-        val deviceHistory = configScan.getDeviceHistories()
-            .find { it.macAddress == deviceInfo.macAddress }
-
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-
-        val info = StringBuilder().apply {
-            append("Device Info:\n")
-            append("  Device ID: ${deviceInfo.deviceId}\n")
-            append("  MAC: ${deviceInfo.macAddress}\n")
-            append("  BleRSSI: ${deviceInfo.rssi}dBm\n")
-        }
 
         showMessage("Querying device status...")
 
-        RadarBleManager.getInstance(this).queryDeviceStatus(deviceInfo) { status ->
+        val radarManager = RadarBleManager.getInstance(this)
+
+        radarManager.queryDeviceStatus(deviceInfo) { status ->
             runOnUiThread {
+                val latestDeviceInfo = radarManager.getLastQueryDeviceInfo()
+                val displayDevice = latestDeviceInfo ?: deviceInfo
+                selectedDevice = displayDevice
+
+                val info = StringBuilder()
+
+                val macAddress = status["macAddress"] ?: displayDevice.macAddress
+                val deviceIdDisplay = status["deviceId"] ?: displayDevice.deviceId
+
+                info.append("deviceName:${displayDevice.deviceName}\n")
+                info.append("deviceId:$deviceIdDisplay\n")
+                info.append("macAddress:$macAddress\n")
+                info.append("BLErssi:${displayDevice.rssi}dBm\n")
+
+                status["uid"]?.let { uid -> info.append("uid:$uid\n") }
+
+                val wifiMode = status["customWifiMode"] ?: status["wifiOpMode"] ?: ""
+                val wifiConnected = status["customWifiConnected"]?.toBoolean() ?: status["staConnected"]?.toBoolean()
+                val wifiSsid = status["customWifiSSID"] ?: status["staSSID"] ?: ""
+                val wifiSignal = status["customWifiRssi"] ?: status["staRssi"] ?: "-255"
+
+                info.append("wifiMode:${if (wifiMode.isNotEmpty()) wifiMode else "Unknown"}\n")
+
+                val wifiSignalDisplay =
+                    if (wifiSignal == "-255") "-255,not signal" else wifiSignal
+                info.append("wifiSsid:$wifiSsid   wifiRssi:$wifiSignalDisplay\n")
+
+                status["runningStatus"]?.takeIf { it.isNotBlank() }?.let { runStatus ->
+                    info.append("radarRunStatus:\n")
+                    runStatus.split("\r\n", "\n").forEach { line ->
+                        info.append("  ")
+                        info.append(line)
+                        info.append('\n')
+                    }
+                } ?: info.append("radarRunStatus:\n")
+
+                latestDeviceInfo?.nearbyWiFiNetworks?.let { networks ->
+                    info.append("nearbyWiFi:\n")
+                    networks.forEachIndexed { index, network ->
+                        val ssid = network.ssid.ifBlank { "(hidden SSID)" }
+                        val rssiValue = network.rssi?.toString() ?: ""
+                        info.append("  ${index + 1}. $ssid (RSSI:$rssiValue dBm)\n")
+                    }
+                } ?: info.append("nearbyWiFi:\n")
+
+                val version = status["version"] ?: ""
+                if (version.isNotEmpty()) {
+                    info.append("version:$version\n")
+                }
+
+                info.append("lastUpdateTime:${dateFormat.format(Date())}\n")
+
                 if (status.containsKey("error")) {
-                    info.append("\nStatus Query Error: ${status["error"]}")
-                } else {
-                    info.append("\nCurrent Status:")
-
-                    // UID
-                    status["uid"]?.let { uid ->
-                        info.append("\n  UID: $uid")
-                    }
-
-                    // WiFi状态
-                    info.append("\n  WiFi:")
-                    when (status["wifiOpMode"]) {
-                        "STA" -> {
-                            val connected = status["staConnected"]?.toBoolean() ?: false
-                            if (connected) {
-                                // 已连接到WiFi
-                                info.append(" Connected")
-                                status["staSSID"]?.let {
-                                    info.append(" to '$it'")
-                                }
-                                status["staRssi"]?.let {
-                                    info.append(" (Signal: ${it}dBm)")
-                                }
-                            } else {
-                                // STA模式但未连接
-                                info.append(" Disconnected")
-                                // 显示上次配置的WiFi
-                                deviceHistory?.let {
-                                    info.append(" (Last Config: ${it.wifiSsid})")
-                                }
-                            }
-                        }
-                        "SOFTAP" -> {
-                            // AP模式
-                            info.append(" AP Mode")
-                            status["apSSID"]?.let { info.append(" '$it'") }
-                            status["apConnCount"]?.let {
-                                info.append(" (Connections: $it)")
-                            }
-                        }
-                        "STASOFTAP" -> {
-                            // 混合模式
-                            info.append(" STA+AP Mode")
-
-                            // STA部分
-                            val connected = status["staConnected"]?.toBoolean() ?: false
-                            if (connected) {
-                                info.append(" | STA: Connected")
-                                status["staSSID"]?.let { info.append(" to '$it'") }
-                                status["staRssi"]?.let { info.append(" (${it}dBm)") }
-                            } else {
-                                info.append(" | STA: Disconnected")
-                            }
-
-                            // AP部分
-                            info.append(" | AP: '${status["apSSID"] ?: "Unknown"}'")
-                            status["apConnCount"]?.let { info.append(" (Connections: $it)") }
-                        }
-                        else -> {
-                            // 未知或无WiFi
-                            if (deviceHistory != null) {
-                                info.append(" ${deviceHistory.wifiSsid} (Last Config)")
-                            } else {
-                                info.append(" Unknown")
-                            }
-                        }
-                    }
-
-                    // 服务器连接状态
-                    info.append("\n  Server Connected: ${status["serverConnected"] == "true"}")
+                    info.append("error:${status["error"]}\n")
                 }
-
-                // 历史服务器配置
-                if (deviceHistory != null) {
-                    info.append("\n\nHistory Server: ${deviceHistory.serverConfig?.serverAddress}:${deviceHistory.serverConfig?.protocol}${deviceHistory.serverConfig?.port}")
-                    info.append("\nLast Config Time: ${dateFormat.format(Date(deviceHistory.configTime))}")
-                }
-
-                info.append("\n\nQuery Time: ${dateFormat.format(Date())}")
 
                 tvStatusOutput.text = info.toString()
                 hideMessage()
@@ -723,29 +876,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // 从历史记录中查找该设备的配置
-        val deviceHistory = configScan.getDeviceHistories()
-            .find { it.macAddress == deviceInfo.macAddress }
-
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-
         val info = StringBuilder().apply {
             append("Device Info:\n")
             append("  Device ID: ${deviceInfo.deviceId}\n")
             append("  MAC: ${deviceInfo.macAddress}\n")
             append("  RSSI: ${deviceInfo.rssi}dBm\n")
             append("  VersionCode: ${bleDevice.versionCode}\n")
-
-            append("\ndeviceHistory :\n")
-            if (deviceHistory != null) {
-                val configTimeStr = dateFormat.format(Date(deviceHistory.configTime))
-                append("  Mode: Station\n")
-                append("  SSID: ${deviceHistory.wifiSsid}\n")
-                append("  Server: ${deviceHistory.serverConfig?.serverAddress}:${deviceHistory.serverConfig?.protocol}${deviceHistory.serverConfig?.port}\n")
-                append("  Config Time: $configTimeStr\n")
-            } else {
-                append("  Not Configured\n")
-            }
         }.toString()
 
         tvStatusOutput.text = info
@@ -911,11 +1047,11 @@ class MainActivity : AppCompatActivity() {
 
         // 清除所有现有配置
         configStorage.clearServerConfigs()
-        Log.d("ConfigTest", "已清除所有服务器配置")
+        //Log.d("ConfigTest", "已清除所有服务器配置")
 
         // 验证清除是否成功
         var configs = configStorage.getServerConfigs()
-        Log.d("ConfigTest", "清除后配置数量: ${configs.size}")
+        //Log.d("ConfigTest", "清除后配置数量: ${configs.size}")
 
         // 添加5个测试配置
         for (i in 1..5) {
@@ -929,8 +1065,8 @@ class MainActivity : AppCompatActivity() {
 
             // 检查添加后的状态
             configs = configStorage.getServerConfigs()
-            Log.d("ConfigTest", "添加#${i}后，配置数量: ${configs.size}")
-            Log.d("ConfigTest", "当前配置列表: ${configs.map { "${it.serverAddress}:${it.port}" }}")
+            //Log.d("ConfigTest", "添加#${i}后，配置数量: ${configs.size}")
+            //Log.d("ConfigTest", "当前配置列表: ${configs.map { "${it.serverAddress}:${it.port}" }}")
         }
 
         // 添加第6个配置，验证是否删除最后一个
@@ -944,21 +1080,21 @@ class MainActivity : AppCompatActivity() {
 
         // 检查是否正确删除了最后一个
         configs = configStorage.getServerConfigs()
-        Log.d("ConfigTest", "添加第6个后，配置数量: ${configs.size}")
-        Log.d("ConfigTest", "最终配置列表: ${configs.map { "${it.serverAddress}:${it.port}" }}")
+        //Log.d("ConfigTest", "添加第6个后，配置数量: ${configs.size}")
+        //Log.d("ConfigTest", "最终配置列表: ${configs.map { "${it.serverAddress}:${it.port}" }}")
 
         // 验证第一个是否是刚添加的
         if (configs.isNotEmpty() && configs[0].serverAddress == extraConfig.serverAddress) {
-            Log.d("ConfigTest", "测试通过：最新添加的配置在列表首位")
+            //Log.d("ConfigTest", "测试通过：最新添加的配置在列表首位")
         } else {
             Log.e("ConfigTest", "测试失败：最新添加的配置不在列表首位")
         }
 
         // 验证列表大小
         if (configs.size <= 5) {
-            Log.d("ConfigTest", "测试通过：配置列表不超过5个")
+            //Log.d("ConfigTest", "测试通过：配置列表不超过5个")
         } else {
-            Log.e("ConfigTest", "测试失败：配置列表超过5个")
+            //Log.e("ConfigTest", "测试失败：配置列表超过5个")
         }
     }
 

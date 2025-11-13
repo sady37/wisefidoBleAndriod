@@ -1,0 +1,18 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<!-- 文件: module-radar/src/main/AndroidManifest.xml -->
+3<!-- 功能: 定义module-radar模块的Android清单文件,配置权限和组件 -->
+4<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+5    xmlns:tools="http://schemas.android.com/tools"
+6    package="com.radar.ble" >
+7
+8    <uses-sdk android:minSdkVersion="31" />
+9
+10    <!-- 该模块可能包含的Activities -->
+11    <application>
+11-->/Users/sady3721/project/bleconfigforAndriod/module-radar/src/main/AndroidManifest.xml:8:5-11:19
+12
+13        <!-- 如果有自定义Activity则在此声明 -->
+14
+15    </application>
+16
+17</manifest>

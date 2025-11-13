@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -153,7 +154,7 @@ class ScanActivity : AppCompatActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val scanTimeoutRunnable = Runnable {
-        Log.d(TAG, "Scan timeout in Activity")
+        //Log.d(TAG, "Scan timeout in Activity")
         updateScanButtonState(false)
     }
 
@@ -193,7 +194,12 @@ class ScanActivity : AppCompatActivity() {
                     // 更新扫描按钮状态
                     updateScanButtonState(true)
 
-                    val bleDevice = data.getSerializableExtra("extra_device") as? BleDevice
+                    val bleDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        data.getSerializableExtra("extra_device", BleDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        data.getSerializableExtra("extra_device") as? BleDevice
+                    }
                     if (bleDevice != null) {
                         val device = DeviceInfo(
                             productorName = Productor.sleepBoardHS,
@@ -226,7 +232,7 @@ class ScanActivity : AppCompatActivity() {
      * 初始化视图组件
      */
     private fun initViews() {
-        Log.d(TAG, "Initializing views")
+        //Log.d(TAG, "Initializing views")
 
         // 绑定视图组件
         radioGroup = findViewById(R.id.radio_device_type)
@@ -252,14 +258,14 @@ class ScanActivity : AppCompatActivity() {
             if (isScanning) {
                 stopScan()
             } else {
-                Log.d(TAG, "Start scan clicked, current module: $currentScanModule")
+                //Log.d(TAG, "Start scan clicked, current module: $currentScanModule")
 
                 currentFilterPrefix = when (currentScanModule) {
                     Productor.radarQL -> configScan.getRadarDeviceName()
                     Productor.sleepBoardHS -> ""
                     Productor.espBle -> inputFilter.text.toString()
                 }
-                Log.d(TAG, "Filter prefix set to: $currentFilterPrefix")
+                //Log.d(TAG, "Filter prefix set to: $currentFilterPrefix")
 
                 currentFilterType = if (currentScanModule == Productor.espBle) {
                     configScan.getFilterType()
@@ -279,7 +285,7 @@ class ScanActivity : AppCompatActivity() {
 
         // 初始化 RecyclerView
         val deviceAdapter = DeviceAdapter(deviceList, configScan.getDeviceHistories()) { device ->
-            Log.i(TAG, "Device selected: ${device.deviceId}, MAC: ${device.macAddress}")
+            Log.i(TAG, "Device selected}")
 
 
             val intent = Intent().apply {
@@ -306,10 +312,43 @@ class ScanActivity : AppCompatActivity() {
                 R.id.radio_filter -> Productor.espBle
                 else -> Productor.radarQL
             }
+            // 根据当前选择的模块更新 filter_label 和 inputFilter
+            updateFilterUI(currentScanModule)
         }
-        Log.d(TAG, "Radio button changed, current module: $currentScanModule")  // 添加日志
         // 初始化默认值 - 放在监听器设置之后
         currentScanModule = Productor.radarQL
+        // 初始化 filter_label 和 inputFilter 的状态
+        updateFilterUI(currentScanModule)
+
+    }
+
+    private fun updateFilterUI(module: Productor) {
+        when (module) {
+            Productor.radarQL, Productor.sleepBoardHS -> {
+                filterLabel.text = "Filter Invalid"
+                inputFilter.hint = ""
+                inputFilter.isEnabled = false
+            }
+            Productor.espBle -> {
+                // 根据保存的 filterType 设置相应的标签和提示
+                currentFilterType = configScan.getFilterType()
+                when (currentFilterType) {
+                    FilterType.DEVICE_NAME -> {
+                        filterLabel.text = "Filter by: Device Name"
+                        inputFilter.hint = "TSBLU,..."
+                    }
+                    FilterType.MAC -> {
+                        filterLabel.text = "Filter by: MAC"
+                        inputFilter.hint = "XX:XX:XX:XX:XX:XX"
+                    }
+                    FilterType.UUID -> {
+                        filterLabel.text = "Filter by: UUID"
+                        inputFilter.hint = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                    }
+                }
+                inputFilter.isEnabled = true
+            }
+        }
     }
 
     // 添加格式化工具方法
@@ -377,7 +416,7 @@ class ScanActivity : AppCompatActivity() {
     private fun startRadarScan() {
         val radarManager = com.espressif.espblufi.RadarBleManager.getInstance(this)
 
-        Log.d(TAG, "Starting radar scan with filter: $currentFilterPrefix, type: $currentFilterType")
+        //Log.d(TAG, "Starting radar scan with filter: $currentFilterPrefix, type: $currentFilterType")
 
         radarManager.setScanCallback { deviceInfo ->
             //Log.d(TAG, "Received scan result: ${result.device.name ?: "null"}, ${result.device.address}")
@@ -434,7 +473,7 @@ class ScanActivity : AppCompatActivity() {
      * 停止扫描
      */
     private fun stopScan() {
-        Log.d(TAG, "Stopping current scan, module: $currentScanModule")
+        //Log.d(TAG, "Stopping current scan")
 
         // 移除超时回调
         mainHandler.removeCallbacks(scanTimeoutRunnable)
@@ -453,7 +492,7 @@ class ScanActivity : AppCompatActivity() {
     private fun showConfigDialog() {
         ConfigDialog(this).apply {
             // 设置当前配置
-            setRadarDeviceName(currentFilterPrefix)
+            setRadarDeviceName(configScan.getRadarDeviceName())
             setFilterType(currentFilterType)
 
             // 设置配置更改监听器

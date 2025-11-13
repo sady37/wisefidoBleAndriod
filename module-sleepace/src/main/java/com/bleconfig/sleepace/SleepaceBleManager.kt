@@ -67,18 +67,19 @@ class SleepaceBleManager private constructor(context: Context) {
 
                 search.setOnDeviceFoundListener(object : SearchBleDevice.OnDeviceFoundListener {
                     override fun onDeviceFound(device: DeviceInfo) {
-                        Log.d(TAG, "search.setOnDeviceFoundListener - Device found: " +
+                        /*Log.d(TAG, "search.setOnDeviceFoundListener - Device found: " +
                                 "productorName=${device.productorName}, " +
-                                "deviceName=${device.deviceName}, " +
+                                "deviceName=##device##, " +
                                 "deviceId=${device.deviceId}, " +
                                 "macAddress=${device.macAddress}, " +
                                 "rssi=${device.rssi}")
+                        */
 
                         val data = CallbackData<Any>()
                         data.status = StatusCode.SUCCESS
                         data.result = device
                         callback.onResultCallback(data)
-                        Log.d(TAG, "Device returned to callback: ${device.deviceName}")
+                        Log.d(TAG, "Device returned to callback")
                     }
                 })
 
@@ -118,33 +119,33 @@ class SleepaceBleManager private constructor(context: Context) {
         password: String,
         callback: IResultCallback<Any>
     ) {
-        Log.d(TAG, "Start config for device: " +
+        /*Log.d(TAG, "Start config for device: " +
                 "name=${device?.deviceName}, " +
                 "type=${device?.deviceType?.type}, " +
                 "address=${device?.address}, " +
                 "IP=$serverIP, " +
                 "Port=$serverPort, " +
                 "SSID=${String(ssidRaw)}")
-
+        */
         if (isConfiguring) {
             Log.d(TAG, "Config already in progress, ignoring request")
             return
         }
 
         if (device?.deviceType?.type == null) {
-            Log.e(TAG, "Invalid device type for device: ${device?.deviceName}")
+            Log.e(TAG, "Invalid device type for device")
             handleError(callback, IllegalArgumentException("Invalid device type"))
             return
         }
 
         isConfiguring = true
         try {
-            Log.d(TAG, "Starting WiFi config with parameters: " +
+            /*Log.d(TAG, "Starting WiFi config with parameters: " +
                     "deviceType=${device.deviceType.type}, " +
                     "address=${device.address}, " +
                     "serverIP=$serverIP, " +
                     "serverPort=$serverPort")
-
+            */
             wifiConfigHelper.bleWiFiConfig(
                 device.deviceType.type,
                 device.address,
@@ -157,12 +158,12 @@ class SleepaceBleManager private constructor(context: Context) {
                 val success = result.status == StatusCode.SUCCESS
                 Log.d(TAG, "Config completed - " +
                         "Status: ${if (success) "SUCCESS" else "FAILED"}, " +
-                        "Device: ${device.deviceName}, " +
+                        //"Device: ##device##, " +
                         "Result code: ${result.status}")
                 callback.onResultCallback(result)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Config error for device ${device.deviceName}", e)
+            Log.e(TAG, "Config error for device ##device##", e)
             isConfiguring = false
             handleError(callback, e)
         }

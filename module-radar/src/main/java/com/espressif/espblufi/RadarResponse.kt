@@ -64,56 +64,6 @@ data class RadarResponse(
         }
     }
 
-    /**
-     * 解析版本信息响应
-     */
-    fun parseVersionInfo(): VersionInfo? {
-        if (command != RadarCommand.GET_VERSION || status != Status.SUCCESS) {
-            return null
-        }
-        return VersionInfo(
-            major = data[0].toInt(),
-            minor = data[1].toInt(),
-            patch = data[2].toInt()
-        )
-    }
-
-    /**
-     * 解析设备状态响应
-     */
-    fun parseDeviceStatus(): DeviceStatus? {
-        if (command != RadarCommand.GET_STATUS || status != Status.SUCCESS) {
-            return null
-        }
-        return DeviceStatus(
-            isDetecting = (data[0].toInt() and 0x01) != 0,
-            sensitivity = data[1].toInt(),
-            mode = data[2].toInt(),
-            errorCode = data[3].toInt()
-        )
-    }
-
-    /**
-     * 版本信息数据类
-     */
-    data class VersionInfo(
-        val major: Int,
-        val minor: Int,
-        val patch: Int
-    ) {
-        override fun toString(): String = "$major.$minor.$patch"
-    }
-
-    /**
-     * 设备状态数据类
-     */
-    data class DeviceStatus(
-        val isDetecting: Boolean,  // 是否正在检测
-        val sensitivity: Int,      // 当前灵敏度
-        val mode: Int,            // 当前工作模式
-        val errorCode: Int        // 错误码
-    )
-
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

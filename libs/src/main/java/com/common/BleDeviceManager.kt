@@ -21,7 +21,7 @@ object BleDeviceManager {
      */
     fun saveDevice(macAddress: String, device: Any) {
         deviceMap[macAddress] = device
-        Log.d(TAG, "Saved device with MAC: $macAddress, type: ${device.javaClass.simpleName}")
+        Log.d(TAG, "Saved device with MAC")
     }
 
     /**
@@ -73,7 +73,7 @@ object BleDeviceManager {
      */
     fun removeDevice(macAddress: String) {
         deviceMap.remove(macAddress)
-        Log.d(TAG, "Removed device with MAC: $macAddress")
+        Log.d(TAG, "Removed device with MAC")
     }
 
     /**

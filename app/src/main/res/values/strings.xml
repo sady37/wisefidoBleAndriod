@@ -1,4 +1,4 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <!-- App 名称 -->
     <string name="app_name">WiseFido BLE</string>
     <!-- 设备类型 -->
@@ -17,22 +17,22 @@
     <string name="hint_select_device">Select device ID</string>
     <string name="step_2">Config</string>
     <string name="hint_server_info">Server information to be connected by the device</string>
-    <string name="hint_server_address">example: app.wisefido.com or 47.90.180.176 </string>
-    <string name="hint_server_port">tcp29010</string>
+    <string name="hint_server_address">app.wisefido.com or 47.90.180.176 </string>
+    <string name="hint_server_port">29010 or 9100</string>
     <string name="step_3">STEP 3</string>
     <string name="hint_select_wlan">Select WLAN to connect device</string>
     <string name="hint_wifi_name">Wi-Fi Name</string>
     <string name="hint_wifi_password">Password</string>
     <string name="btn_pair">Pair</string>
-    <string name="btn_status">Status</string>
-    <string name="unknown_device">unkown device</string>
+    <string name="btn_status">Query</string>
+    <string name="unknown_device">unknown device</string>
     <string name="unknown_device_id">unknown device id</string>
 
    <!-- 历史记录相关 -->
     <string name="recent_servers">Recent Servers</string>
-    <string name="recent_networks">Recent Networks</string>
+    <string name="recent_networks">Recent WiFi</string>
     <string name="no_recent_servers">No recent servers</string>
-    <string name="no_recent_networks">No recent networks</string>
+    <string name="no_recent_networks">No recent WiFi</string>
     
     <!-- Toast 提示 -->
     <string name="toast_select_device_first">Please select a device first</string>
@@ -48,11 +48,11 @@
     <string name="toast_get_wifi_failed">Failed to get WiFi information</string>
     <string name="toast_invalid_device">invalid_device</string>
     <string name="toast_config_exception">toast_config_exception</string>
-    <string name="recent_networks_count">Recent Networks (%1$d)</string>
+    <string name="recent_networks_count">Recent WiFi (%1$d)</string>
     <string name="recent_servers_count">Recent Servers (%1$d)</string>
     <string name="permissions_required">Bluetooth and Location permission required</string>
     <string name="toast_config_required">To configure Wi-Fi or Server, at least one is required: </string>
-    <string name="status_text_with_connection">%1$s\nDevice con successfully</string>nected
+    <string name="status_text_with_connection">%1$s\nDevice con successfully</string>connected
     <string name="status_text_with_device_connected">%1$s\nDevice connected successfully</string>
     <string name="status_text_with_wifi_success">%1$s\nWiFi configuration successful</string>
     <string name="status_text_with_wifi_failed">%1$s\nWiFi configuration failed</string>
@@ -74,5 +74,10 @@
     <string name="location_permission_required">Location permission required</string>
     <string name="config">Configuration</string>
     <string name="connecting">Connecting</string>
+    <string name="toast_history_deleted">History entry deleted</string>
+    <string name="history_wifi_password_empty">(empty)</string>
+    <string name="history_wifi_delete">Delete this Wi-Fi record</string>
+    <string name="history_record_delete_short">Del</string>
+    <string name="history_wifi_reveal">Temporarily reveal password</string>
 
 </resources>

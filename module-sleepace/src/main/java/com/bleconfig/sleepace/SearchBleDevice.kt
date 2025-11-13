@@ -57,7 +57,7 @@ class SearchBleDevice(private val context: Context) {
 
             val deviceName = BleAdvUtil.getDeviceName(scanRecord)?.trim()
             val deviceType = getDeviceTypeByName(deviceName)
-            Log.d(TAG, "onLeScan -deviceType: $deviceType, deviceName: $deviceName, rssi: $rssi, address: ${device.address}")
+            //Log.d(TAG, "onLeScan -deviceType: $deviceType, deviceName: $deviceName, rssi: $rssi, address: ${device.address}")
 
             if (checkDeviceName(deviceName)) {
                 // 创建 BleDevice 对象
@@ -264,7 +264,7 @@ class SearchBleDevice(private val context: Context) {
             checkSDC10(deviceName) -> DeviceType.DEVICE_TYPE_SDC100
             checkM901L(deviceName) -> DeviceType.DEVICE_TYPE_M901L
             else -> {
-                Log.d(TAG, "Device type not recognized for device: $deviceName")
+                Log.d(TAG, "Device type not recognized for device")
                 null
             }
         }
