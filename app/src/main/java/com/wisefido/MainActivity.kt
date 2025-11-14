@@ -162,6 +162,10 @@ class MainActivity : AppCompatActivity() {
         setupHistoryViews()
         loadRecentConfigs()
 
+        RadarBleManager.getInstance(this).setErrorCallback { _, message ->
+            appendStatusLine("Radar error: $message")
+        }
+
     }
     // endregion
 
@@ -532,28 +536,15 @@ class MainActivity : AppCompatActivity() {
         // 根据设备类型进行不同的验证和配网
         when (selectedDevice?.productorName) {
             Productor.radarQL, Productor.espBle -> {
-                // A厂设备允许分离配置
-                val hasValidWifi = getCurrentWifiConfig() != null
-                val hasValidServer = getCurrentServerConfig() != null
+                val wifiConfig = getCurrentWifiConfig()
+                val serverConfig = getCurrentServerConfig()
 
-                // 如果两者都无效，给出提示
-                if (!hasValidWifi && !hasValidServer) {
-                    showMessage("Please enter at least a valid WiFi or server configuration")
+                if (wifiConfig == null && serverConfig == null) {
+                    appendStatusLine("Please enter at least a valid Wi-Fi or server configuration")
                     return
                 }
-                // 如果两者都需要配置，先配置WiFi，然后通过回调处理服务器配置
-                if (hasValidWifi && hasValidServer) {
-                    // 只启动WiFi配置，服务器配置将在WiFi成功后的回调中启动
-                    configureRadarWiFi()
-                }
-                // 只配置WiFi
-                else if (hasValidWifi) {
-                    configureRadarWiFi()
-                }
-                // 只配置服务器
-                else {
-                    configureRadarServer()
-                }
+
+                configureRadarDevice(wifiConfig, serverConfig)
             }
 
             Productor.sleepBoardHS -> {
@@ -574,88 +565,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * A厂(Radar)配网实现
-     */
-    @SuppressLint("MissingPermission", "SetTextI18x")
-    private fun configureRadarWiFi() {
-        val deviceMac = selectedDevice?.macAddress ?: return
-        val wifiConfig = getCurrentWifiConfig() ?: return
-        showMessage("Initializing connection...")
-        performRadarWifiConfiguration(deviceMac, wifiConfig)
-    }
-
-    /**
-     * A厂(Radar)服务器配置实现
-     */
-    @SuppressLint("MissingPermission", "SetTextI18x")
-    private fun configureRadarServer() {
+    private fun configureRadarDevice(wifiConfig: WifiConfig?, serverConfig: ServerConfig?) {
         val device = selectedDevice ?: return
-        val serverConfig = getCurrentServerConfig() ?: return
-        showMessage("Initializing connection...")
-        performRadarServerConfiguration(device, serverConfig)
-    }
-
-    private fun performRadarWifiConfiguration(deviceMac: String, wifiConfig: WifiConfig) {
         val radarManager = RadarBleManager.getInstance(this)
-        val ssidString = wifiConfig.ssid
-        val password = wifiConfig.password
+        tvStatusOutput.text = ""
+        appendStatusLine("Configuring device...")
 
-        tvStatusOutput.text = "Starting wifi configuration..."
-        val currentText = tvStatusOutput.text.toString()
-        tvStatusOutput.text = getString(R.string.status_text_with_connection, currentText)
+        radarManager.configureDevice(
+            deviceInfo = device,
+            wifiConfig = wifiConfig,
+            serverConfig = serverConfig,
+            statusCallback = { message -> appendStatusLine(message) }
+        ) { result ->
+            runOnUiThread {
+                result["message"]?.let { appendStatusLine(it) }
+                result["error"]?.let { appendStatusLine("Configuration failed: $it") }
 
-        radarManager.configureWifi(deviceMac, ssidString, password) { result ->
-            val success = result["success"]?.toBoolean() ?: false
-
-            result["warmupStatus"]?.let { warmup ->
-                appendStatusLine("Warmup status: $warmup")
-            }
-
-            if (success) {
-                configScan.saveWifiConfig(wifiConfig)
-                val deviceConnectedText = tvStatusOutput.text.toString()
-                tvStatusOutput.text = getString(R.string.status_text_with_device_connected, deviceConnectedText)
-                handleConfigResult(true)
-                showMessage("WiFi configuration successful")
-                if (getCurrentServerConfig() != null) {
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        configureRadarServer()
-                    }, 3000)
+                val success = result["success"]?.toBoolean() ?: false
+                if (success) {
+                    wifiConfig?.let { configScan.saveWifiConfig(it) }
+                    serverConfig?.let { configScan.saveServerConfig(it) }
+                    handleConfigResult(true)
                 }
-            } else {
-                val wifiConfigText = tvStatusOutput.text.toString()
-                tvStatusOutput.text = getString(R.string.status_text_with_wifi_failed, wifiConfigText)
-                showMessage("WiFi configuration failed")
-            }
-        }
-    }
-
-    private fun performRadarServerConfiguration(device: DeviceInfo, serverConfig: ServerConfig) {
-        val radarManager = RadarBleManager.getInstance(this)
-        tvStatusOutput.text = "Starting server configuration..."
-
-        radarManager.configureServer(device, serverConfig) { result ->
-            val success = result["success"]?.toBoolean() ?: false
-
-            result["warmupStatus"]?.let { warmup ->
-                appendStatusLine("Warmup status: $warmup")
-            }
-
-            val serverConfigText = tvStatusOutput.text.toString()
-
-            if (success) {
-                tvStatusOutput.text = getString(R.string.status_text_with_server_success, serverConfigText)
-            } else {
-                tvStatusOutput.text = getString(R.string.status_text_with_server_failed, serverConfigText)
-            }
-
-            if (success) {
-                configScan.saveServerConfig(serverConfig)
-                handleConfigResult(true)
-                showMessage("Server configuration successful")
-            } else {
-                showMessage("Server configuration failed")
             }
         }
     }
@@ -838,6 +769,7 @@ class MainActivity : AppCompatActivity() {
                         info.append(line)
                         info.append('\n')
                     }
+                    info.append('\n')
                 } ?: info.append("radarRunStatus:\n")
 
                 latestDeviceInfo?.nearbyWiFiNetworks?.let { networks ->
@@ -1017,7 +949,7 @@ class MainActivity : AppCompatActivity() {
             // 刷新UI显示
             loadRecentConfigs()
 
-            showMessage(getString(R.string.toast_config_success))
+            appendStatusLine("Configuration record updated")
         }
     }
 

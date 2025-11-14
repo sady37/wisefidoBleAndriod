@@ -38,6 +38,7 @@ import com.common.NearbyWifiNetwork
 import android.os.Build
 
 import com.espressif.espblufi.constants.BlufiConstants
+import com.espressif.espblufi.BlufiCallback.STATUS_SUCCESS
 import com.espressif.espblufi.params.BlufiConfigureParams
 import com.espressif.espblufi.response.BlufiStatusResponse
 import com.espressif.espblufi.response.BlufiVersionResponse
@@ -60,11 +61,14 @@ class RadarBleManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "RadarBleManager"
         private const val SCAN_TIMEOUT = 10000L  // 扫描超时时间 10秒
-        private const val QUERY_TIMEOUT = 25000L  // 查询超时时间 25秒
+        private const val QUERY_TIMEOUT = 20000L  // 查询超时时间 20秒
         private const val GATT_WRITE_TIMEOUT = 10000L //连接超时间10秒
-        private const val CONFIGSERVER_TIMEOUT=25000L
-        private const val COMMAND_DELAYTIME=1000L
-        private const val DEVICERESTART_DELAYTIME=5000L
+        private const val CONFIG_TOTAL_TIMEOUT = 20000L
+        private const val PREHEAT_TIMEOUT = 5000L
+        private const val WIFI_CONFIG_TIMEOUT = 5000L
+        private const val SERVER_STEP_TIMEOUT = 8000L
+        private const val DEVICERESTART_DELAYTIME = 5000L
+        private const val RESTART_FINALIZE_DELAY = 3000L
         private const val WIFI_SCAN_TIMEOUT = 8000L
         private const val CUSTOM_COMMAND_TIMEOUT = 300L
         private const val RUN_STATUS_FINALIZE_DELAY = 500L
@@ -160,6 +164,8 @@ class RadarBleManager private constructor(private val context: Context) {
     private val bluetoothAdapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     private var blufiClient: BlufiClient? = null
+    private var isGattConnected: Boolean = false
+    private var activeBlufiCallback: BlufiCallback? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val scanTimeoutRunnable = Runnable {
@@ -174,6 +180,404 @@ class RadarBleManager private constructor(private val context: Context) {
 
     // 扫描回调
     private var scanCallback: ((DeviceInfo) -> Unit)? = null
+
+
+    //region 配网、配服务器
+    // -------------- 5. 配网和服务器配置函数 --------------
+
+    private enum class ConfigStage { IDLE, PREHEAT, WIFI, SERVER, COMPLETE }
+    private enum class ServerPhase { NONE, ADDRESS, PORT, EXTRA3, RESTART }
+
+    private data class ConfigContext(
+        val deviceInfo: DeviceInfo,
+        val wifiConfig: WifiConfig?,
+        val serverConfig: ServerConfig?,
+        val statusCallback: ((String) -> Unit)?,
+        val resultCallback: (Map<String, String>) -> Unit
+    ) {
+        val result: MutableMap<String, String> = mutableMapOf()
+        var stage: ConfigStage = ConfigStage.IDLE
+        var serverPhase: ServerPhase = ServerPhase.NONE
+        var configTimeout: Runnable? = null
+        var stepTimeout: Runnable? = null
+        var restartFinalizeTask: Runnable? = null
+    }
+
+    private var currentConfig: ConfigContext? = null
+
+    fun configureDevice(
+        deviceInfo: DeviceInfo,
+        wifiConfig: WifiConfig?,
+        serverConfig: ServerConfig?,
+        statusCallback: ((String) -> Unit)? = null,
+        callback: (Map<String, String>) -> Unit
+    ) {
+        if (wifiConfig == null && serverConfig == null) {
+            callback.invoke(mapOf("success" to "false", "error" to "No configuration parameters provided"))
+            return
+        }
+        if (currentConfig != null) {
+            callback.invoke(mapOf("success" to "false", "error" to "Another configuration is already in progress"))
+            return
+        }
+
+        val targetDevice = resolveBluetoothDevice(deviceInfo.macAddress) ?: run {
+            callback.invoke(mapOf("success" to "false", "error" to "Invalid device address"))
+            return
+        }
+
+        val context = ConfigContext(
+            deviceInfo = deviceInfo,
+            wifiConfig = wifiConfig,
+            serverConfig = serverConfig,
+            statusCallback = statusCallback,
+            resultCallback = callback
+        )
+        currentConfig = context
+
+        postConfigStatus(context, "Starting configuration for ${deviceInfo.deviceName.ifBlank { deviceInfo.macAddress }}")
+        startConfigTimeout(context, CONFIG_TOTAL_TIMEOUT, "configuration timeout")
+
+        val reuseConnection = isGattConnected && blufiClient != null
+
+        val configCallback = createConfigCallback(context)
+
+        if (reuseConnection) {
+            Log.d(TAG, "Reusing existing connection for configuration")
+            postConfigStatus(context, "Reusing existing connection")
+            activeBlufiCallback = configCallback
+            blufiClient?.setBlufiCallback(configCallback)
+            beginConfiguration(context)
+        } else {
+            postConfigStatus(context, "Connecting to ${deviceInfo.deviceName.ifBlank { deviceInfo.macAddress }}")
+            connect(targetDevice, configCallback)
+        }
+    }
+
+    private fun createConfigCallback(context: ConfigContext): BlufiCallback {
+        return object : BlufiCallback() {
+            override fun onGattPrepared(
+                client: BlufiClient,
+                gatt: BluetoothGatt,
+                service: BluetoothGattService?,
+                writeChar: BluetoothGattCharacteristic?,
+                notifyChar: BluetoothGattCharacteristic?
+            ) {
+                if (currentConfig !== context) return
+                if (service == null || writeChar == null || notifyChar == null) {
+                    failConfiguration(context, "Service discovery failed")
+                    return
+                }
+                postConfigStatus(context, "Negotiating security...")
+                try {
+                    client.negotiateSecurity()
+                } catch (e: Exception) {
+                    failConfiguration(context, "Failed to negotiate security: ${e.message}")
+                }
+            }
+
+            override fun onNegotiateSecurityResult(client: BlufiClient, status: Int) {
+                if (currentConfig !== context || context.stage == ConfigStage.COMPLETE) return
+                if (status == STATUS_SUCCESS) {
+                    postConfigStatus(context, "Security negotiation successful")
+                    startPreheat(context, client)
+                } else {
+                    failConfiguration(context, "Security negotiation failed: $status")
+                }
+            }
+
+            override fun onPostConfigureParams(client: BlufiClient, status: Int) {
+                if (currentConfig !== context || context.stage != ConfigStage.WIFI) return
+                handleWifiConfigureResult(context, status, client)
+            }
+
+            override fun onReceiveCustomData(client: BlufiClient, status: Int, data: ByteArray) {
+                if (currentConfig !== context || context.stage == ConfigStage.COMPLETE) return
+                val responseStr = runCatching { String(data) }.getOrNull()
+                val parsed = RadarCommand.parseResponse(responseStr)
+                when (context.stage) {
+                    ConfigStage.PREHEAT -> handlePreheatResponse(context, parsed, client)
+                    ConfigStage.SERVER -> handleServerResponse(context, parsed, responseStr, client)
+                    else -> Unit
+                }
+            }
+
+            override fun onError(client: BlufiClient, errCode: Int) {
+                if (currentConfig !== context || context.stage == ConfigStage.COMPLETE) return
+                failConfiguration(context, "Communication error: $errCode")
+            }
+        }
+    }
+
+    private fun beginConfiguration(context: ConfigContext) {
+        if (currentConfig !== context) return
+        postConfigStatus(context, "Negotiating security...")
+        try {
+            blufiClient?.negotiateSecurity()
+        } catch (e: Exception) {
+            failConfiguration(context, "Failed to negotiate security: ${e.message}")
+        }
+    }
+
+    private fun startPreheat(context: ConfigContext, client: BlufiClient) {
+        if (currentConfig !== context) return
+        context.stage = ConfigStage.PREHEAT
+        startStepTimeout(context, PREHEAT_TIMEOUT, "Preheat timed out")
+        val request = RadarCommand.GET_DEVICE_UID.buildRequest()
+        postConfigStatus(context, "Sending UID query (12:)")
+        try {
+            client.postCustomData(request.toByteArray())
+        } catch (e: Exception) {
+            failConfiguration(context, "Preheat command failed: ${e.message}")
+        }
+    }
+
+    private fun handlePreheatResponse(
+        context: ConfigContext,
+        response: RadarCommandResponse,
+        client: BlufiClient
+    ) {
+        if (response.command != RadarCommand.GET_DEVICE_UID) return
+        clearStepTimeout(context)
+        if (response.success == false) {
+            failConfiguration(context, "Preheat failed")
+            return
+        }
+        val uid = response.payload?.trim()?.takeIf { it.isNotEmpty() }
+        if (uid != null) {
+            context.result["uid"] = uid
+            postConfigStatus(context, "Preheat success, UID:$uid")
+        } else {
+            postConfigStatus(context, "Preheat success, UID unavailable")
+        }
+        when {
+            context.wifiConfig != null -> startWifiConfiguration(context, client)
+            context.serverConfig != null -> startServerConfiguration(context, client)
+            else -> finishConfiguration(context, true)
+        }
+    }
+
+    private fun startWifiConfiguration(context: ConfigContext, client: BlufiClient) {
+        val wifiConfig = context.wifiConfig ?: run {
+            startServerConfiguration(context, client)
+            return
+        }
+        context.stage = ConfigStage.WIFI
+        startStepTimeout(context, WIFI_CONFIG_TIMEOUT, "Wi-Fi configuration timed out")
+        postConfigStatus(context, "Configuring Wi-Fi SSID: ${wifiConfig.ssid}")
+        val params = BlufiConfigureParams().apply {
+            opMode = 1
+            staSSIDBytes = wifiConfig.ssid.toByteArray()
+            staPassword = wifiConfig.password
+        }
+        try {
+            client.configure(params)
+        } catch (e: Exception) {
+            clearStepTimeout(context)
+            failConfiguration(context, "Wi-Fi configuration send failure: ${e.message}")
+        }
+    }
+
+    private fun handleWifiConfigureResult(context: ConfigContext, status: Int, client: BlufiClient) {
+        clearStepTimeout(context)
+        if (status == STATUS_SUCCESS) {
+            context.result["wifiConfigured"] = "true"
+            if (context.serverConfig != null) {
+                postConfigStatus(context, "WiFi configuration successful, proceeding to server configuration")
+                startServerConfiguration(context, client)
+            } else {
+                postConfigStatus(context, "WiFi configuration successful")
+                context.result["message"] = "WiFi configuration successful"
+                finishConfiguration(context, true)
+            }
+        } else {
+            context.result["wifiConfigured"] = "false"
+            failConfiguration(context, "Wi-Fi configuration failed: $status")
+        }
+    }
+
+    private fun startServerConfiguration(context: ConfigContext, client: BlufiClient) {
+        val serverConfig = context.serverConfig ?: run {
+            finishConfiguration(context, true)
+            return
+        }
+        context.stage = ConfigStage.SERVER
+        context.serverPhase = ServerPhase.ADDRESS
+        postConfigStatus(context, "Configuring server ${serverConfig.serverAddress}:${serverConfig.port}")
+        sendNextServerCommand(context, client)
+    }
+
+    private fun sendNextServerCommand(context: ConfigContext, client: BlufiClient) {
+        val serverConfig = context.serverConfig ?: return
+        when (context.serverPhase) {
+            ServerPhase.ADDRESS -> {
+                startStepTimeout(context, SERVER_STEP_TIMEOUT, "Server address acknowledgement timed out")
+                val command = RadarCommand.SET_SERVER_ADDRESS.buildRequest(serverConfig.serverAddress)
+                Log.d(TAG, "Sending server address command: $command")
+                client.postCustomData(command.toByteArray())
+            }
+            ServerPhase.PORT -> {
+                startStepTimeout(context, SERVER_STEP_TIMEOUT, "Server port acknowledgement timed out")
+                val command = RadarCommand.SET_SERVER_PORT.buildRequest(serverConfig.port.toString())
+                Log.d(TAG, "Sending server port command: $command")
+                client.postCustomData(command.toByteArray())
+            }
+            ServerPhase.EXTRA3 -> {
+                startStepTimeout(context, SERVER_STEP_TIMEOUT, "Server auxiliary command timed out")
+                Log.d(TAG, "Sending server auxiliary command: 3:0")
+                client.postCustomData("3:0".toByteArray())
+            }
+            ServerPhase.RESTART -> {
+                postConfigStatus(context, "Sending restart command (8:)")
+                Log.d(TAG, "Sending restart command: 8:")
+                client.postCustomData(RadarCommand.RESTART_DEVICE.buildRequest().toByteArray())
+            }
+            else -> Unit
+        }
+    }
+
+    private fun handleServerResponse(
+        context: ConfigContext,
+        response: RadarCommandResponse,
+        raw: String?,
+        client: BlufiClient
+    ) {
+        when (context.serverPhase) {
+            ServerPhase.ADDRESS -> {
+                if (response.command == RadarCommand.SET_SERVER_ADDRESS && response.success == true) {
+                    clearStepTimeout(context)
+                    context.result["serverAddressSuccess"] = "true"
+                    context.serverPhase = ServerPhase.PORT
+                    sendNextServerCommand(context, client)
+                } else {
+                    failConfiguration(context, "Server address configuration failed")
+                }
+            }
+            ServerPhase.PORT -> {
+                if (response.command == RadarCommand.SET_SERVER_PORT && response.success == true) {
+                    clearStepTimeout(context)
+                    context.result["serverPortSuccess"] = "true"
+                    postConfigStatus(context, "Server configuration successful")
+                    context.result["message"] = "Server configuration successful"
+                    context.serverPhase = ServerPhase.EXTRA3
+                    sendNextServerCommand(context, client)
+                } else {
+                    failConfiguration(context, "Server port configuration failed")
+                }
+            }
+            ServerPhase.EXTRA3 -> {
+                val success = raw?.trim()?.endsWith("3:0") == true || response.payload?.startsWith("0") == true
+                if (success) {
+                    clearStepTimeout(context)
+                    context.serverPhase = ServerPhase.RESTART
+                    scheduleRestartFinalize(context)
+                    sendNextServerCommand(context, client)
+                } else {
+                    failConfiguration(context, "Server auxiliary command failed")
+                }
+            }
+            ServerPhase.RESTART -> {
+                if (response.command == RadarCommand.RESTART_DEVICE && response.success == true) {
+                    clearStepTimeout(context)
+                    context.restartFinalizeTask?.let { mainHandler.removeCallbacks(it) }
+                    context.restartFinalizeTask = null
+                    context.result["deviceRestarted"] = "true"
+                    val previous = context.result["message"]?.takeIf { it.isNotBlank() } ?: "Server configuration successful"
+                    val message = "$previous\nwait 10 seconds for restart"
+                    context.result["message"] = message
+                    postConfigStatus(context, "wait 10 seconds for restart")
+                    finishConfiguration(context, true)
+                } else {
+                    failConfiguration(context, "Device restart failed")
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun postConfigStatus(context: ConfigContext, message: String) {
+        context.statusCallback?.let { cb ->
+            mainHandler.post { cb(message) }
+        }
+    }
+
+    private fun startConfigTimeout(context: ConfigContext, timeoutMs: Long, reason: String) {
+        context.configTimeout?.let { mainHandler.removeCallbacks(it) }
+        val timeout = Runnable {
+            if (currentConfig === context) {
+                failConfiguration(context, reason)
+            }
+        }
+        context.configTimeout = timeout
+        mainHandler.postDelayed(timeout, timeoutMs)
+    }
+
+    private fun startStepTimeout(context: ConfigContext, timeoutMs: Long, reason: String) {
+        context.stepTimeout?.let { mainHandler.removeCallbacks(it) }
+        val timeout = Runnable {
+            if (currentConfig === context) {
+                failConfiguration(context, reason)
+            }
+        }
+        context.stepTimeout = timeout
+        mainHandler.postDelayed(timeout, timeoutMs)
+    }
+
+    private fun scheduleRestartFinalize(context: ConfigContext) {
+        context.restartFinalizeTask?.let { mainHandler.removeCallbacks(it) }
+        val task = Runnable {
+            if (currentConfig === context && context.stage == ConfigStage.SERVER && context.serverPhase == ServerPhase.RESTART) {
+                context.result["deviceRestarted"] = "true"
+                val previous = context.result["message"]?.takeIf { it.isNotBlank() } ?: "Server configuration successful"
+                val message = "$previous\nwait 10 seconds for restart"
+                context.result["message"] = message
+                postConfigStatus(context, "wait 10 seconds for restart")
+                finishConfiguration(context, true)
+            }
+        }
+        context.restartFinalizeTask = task
+        mainHandler.postDelayed(task, RESTART_FINALIZE_DELAY)
+    }
+
+    private fun clearConfigTimeout(context: ConfigContext) {
+        context.configTimeout?.let { mainHandler.removeCallbacks(it) }
+        context.configTimeout = null
+    }
+
+    private fun clearStepTimeout(context: ConfigContext) {
+        context.stepTimeout?.let { mainHandler.removeCallbacks(it) }
+        context.stepTimeout = null
+    }
+
+    private fun finishConfiguration(context: ConfigContext, success: Boolean) {
+        if (context.stage == ConfigStage.COMPLETE) return
+        clearStepTimeout(context)
+        clearConfigTimeout(context)
+        context.restartFinalizeTask?.let { mainHandler.removeCallbacks(it) }
+        context.restartFinalizeTask = null
+        context.stage = ConfigStage.COMPLETE
+        if (success) {
+            context.result["success"] = "true"
+            if (context.result["message"].isNullOrEmpty()) {
+                context.result["message"] = "Configuration successful"
+            }
+        } else {
+            context.result.putIfAbsent("success", "false")
+        }
+        val copy = context.result.toMap()
+        mainHandler.post { context.resultCallback(copy) }
+        currentConfig = null
+    }
+
+    private fun failConfiguration(context: ConfigContext, error: String) {
+        if (context.stage == ConfigStage.COMPLETE) return
+        context.restartFinalizeTask?.let { mainHandler.removeCallbacks(it) }
+        context.restartFinalizeTask = null
+        context.result["success"] = "false"
+        context.result["error"] = error
+        postConfigStatus(context, error)
+        finishConfiguration(context, false)
+    }
 
     //endregion
 
@@ -212,14 +616,15 @@ class RadarBleManager private constructor(private val context: Context) {
     /**
      * 连接设备
      */
-    fun connect(deviceMacAddress: String) {
+    fun connect(deviceMacAddress: String, blufiCallback: BlufiCallback? = null) {
+        Log.d(TAG, "connect() requested for $deviceMacAddress, callback=$blufiCallback")
         val device = resolveBluetoothDevice(deviceMacAddress)
 
         if (device != null) {
-            Log.d(TAG, "Device found, starting connection process")
+            Log.d(TAG, "Device resolved for $deviceMacAddress, starting connection process")
             isConnecting = true
             currentDeviceMac = deviceMacAddress
-            connect(device)
+            connect(device, blufiCallback)
         } else {
             //Log.e(TAG, "Failed to get device with MAC: $deviceMacAddress")
             notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Invalid device address")
@@ -227,16 +632,22 @@ class RadarBleManager private constructor(private val context: Context) {
         }
     }
 
-    private fun connect(device: BluetoothDevice) {
-        //Log.d(TAG, "Starting connection to device: ${device.address}")
-        disconnect()
+    private fun connect(device: BluetoothDevice, blufiCallback: BlufiCallback? = null) {
+        Log.d(TAG, "Preparing new connection to device: ${device.address}")
+        if (blufiClient != null) {
+            Log.d(TAG, "Existing client detected, disconnecting before new connection")
+        }
+        disconnect(clearCallback = false)
 
         BlufiClient(context, device).also { client ->
             blufiClient = client
+            Log.d(TAG, "BlufiClient created for ${device.address}, assigning callbacks")
 
             // 设置 GATT 回调
             client.setGattCallback(createGattCallback())
-            client.setBlufiCallback(createBlufiCallback())
+            val callbackToUse = blufiCallback ?: createBlufiCallback()
+            activeBlufiCallback = callbackToUse
+            client.setBlufiCallback(callbackToUse)
 
             // 设置超时 BlufiConstants.GATT_WRITE_TIMEOUT=5000L->10000L
             //client.setGattWriteTimeout(BlufiConstants.GATT_WRITE_TIMEOUT)
@@ -309,6 +720,41 @@ class RadarBleManager private constructor(private val context: Context) {
         }
     }
 
+    private fun handleGattFailure(status: Int): Boolean {
+        currentConfig?.let { context ->
+            failConfiguration(context, "Connection failed: $status")
+            return false
+        }
+
+        if (!isRetryEnabled) {
+            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
+            return false
+        }
+        val mac = currentDeviceMac ?: run {
+            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
+            return false
+        }
+        if (!isConnecting) {
+            isConnecting = true
+        }
+        if (errorCount >= MAX_RETRY_COUNT) {
+            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
+            return false
+        }
+        errorCount++
+        val callbackSnapshot = activeBlufiCallback
+        stopKeepAlive()
+        mainHandler.postDelayed({
+            disconnect(clearCallback = false)
+            if (callbackSnapshot != null) {
+                connect(mac, callbackSnapshot)
+            } else {
+                connect(mac)
+            }
+        }, RECONNECT_DELAY)
+        return true
+    }
+
 
     /**
      * 发送自定义数据
@@ -321,7 +767,10 @@ class RadarBleManager private constructor(private val context: Context) {
     /**
      * 断开连接
      */
-    fun disconnect() {
+    fun disconnect(clearCallback: Boolean = true) {
+        if (blufiClient != null) {
+            Log.d(TAG, "disconnect() invoked, clearCallback=$clearCallback, activeCallback=$activeBlufiCallback")
+        }
         isConnecting = false
 
         // 移除所有挂起的回调以防止内存泄漏
@@ -333,8 +782,14 @@ class RadarBleManager private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing BluetoothGatt", e)
         }
+        if (blufiClient != null) {
+            Log.d(TAG, "disconnect() completed, client cleared")
+        }
         blufiClient = null
         configureCallback = null
+        if (clearCallback) {
+            activeBlufiCallback = null
+        }
     }
 
     /**
@@ -357,6 +812,7 @@ class RadarBleManager private constructor(private val context: Context) {
                         BluetoothProfile.STATE_CONNECTED -> {
                             Log.d(TAG, "Connected to device")
                             errorCount = 0
+                            isGattConnected = true
                             // 连接成功后立即启动保活
                             startKeepAlive()
                             // 请求高优先级连接（对所有版本）
@@ -370,6 +826,7 @@ class RadarBleManager private constructor(private val context: Context) {
                         }
                         BluetoothProfile.STATE_DISCONNECTED -> {
                             Log.d(TAG, "Disconnected from device")
+                            isGattConnected = false
                             // 连接断开时停止保活
                             stopKeepAlive()
                             disconnect()
@@ -377,12 +834,14 @@ class RadarBleManager private constructor(private val context: Context) {
                     }
                 } else if (status == 8 && newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.e(TAG, "Connection failed with status 8 (timeout)")
+                    isGattConnected = false
                     if (!handleGattFailure(status)) {
                         stopKeepAlive()
                         disconnect()
                     }
                 } else if (status == 133 && newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.e(TAG, "Connection failed with status 133 (GATT_ERROR)")
+                    isGattConnected = false
                     if (!handleGattFailure(status)) {
                         stopKeepAlive()
                         disconnect()
@@ -391,6 +850,7 @@ class RadarBleManager private constructor(private val context: Context) {
                     // 其他连接失败情况
                     //Log.e(TAG, "Connection failed with status: $status")
                     stopKeepAlive()
+                    isGattConnected = false
                     disconnect()
                 }
             }
@@ -707,7 +1167,7 @@ class RadarBleManager private constructor(private val context: Context) {
             }
             lastQueryDeviceInfo = updatedDeviceInfo
             callback?.invoke(statusMap)
-            disconnect()
+            //disconnect()
         }
 
         fun startWifiScan(client: BlufiClient) {
@@ -835,9 +1295,7 @@ class RadarBleManager private constructor(private val context: Context) {
         }
 
         Log.d(TAG, "Connecting to device")
-        connect(device)
-
-        blufiClient?.setBlufiCallback(object : BlufiCallback() {
+        connect(device, object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
                 gatt: BluetoothGatt,
@@ -952,7 +1410,6 @@ class RadarBleManager private constructor(private val context: Context) {
                                 val mac = extractMacAddress(raw, parsed.payload)
                                 if (!mac.isNullOrEmpty()) {
                                     statusMap["macAddress"] = mac
-                                    updatedDeviceInfo = updatedDeviceInfo.copy(macAddress = mac)
                                 } else {
                                     statusMap["deviceMacResponse"] = parsed.payload ?: stringData
                                 }
@@ -1120,6 +1577,21 @@ class RadarBleManager private constructor(private val context: Context) {
                         ?: emptyList()
                     updatedDeviceInfo = updatedDeviceInfo.copy(nearbyWiFiNetworks = wifiNetworks)
                     statusMap["nearbyWiFiNetworks"] = gson.toJson(wifiNetworks)
+                    if (wifiNetworks.isNotEmpty()) {
+                        val currentWifiSsid = when {
+                            statusMap["customWifiSSID"].isNullOrBlank().not() -> statusMap["customWifiSSID"]!!
+                            statusMap["staSSID"].isNullOrBlank().not() -> statusMap["staSSID"]!!
+                            else -> ""
+                        }
+                        val currentRssiValue = statusMap["customWifiRssi"]?.toIntOrNull() ?: -255
+                        if (currentRssiValue <= -255 && currentWifiSsid.isNotEmpty()) {
+                            val matched = wifiNetworks.firstOrNull { it.ssid == currentWifiSsid }
+                            matched?.rssi?.let { rssi ->
+                                statusMap["customWifiRssi"] = rssi.toString()
+                                Log.d(TAG, "Updated Wi-Fi RSSI from scan: ssid=${matched.ssid}, rssi=$rssi")
+                            }
+                        }
+                    }
                 } else {
                     statusMap["wifiScanError"] = "Wi-Fi scan failed: $status"
                     statusMap["nearbyWiFiNetworks"] = gson.toJson(emptyList<NearbyWifiNetwork>())
@@ -1208,7 +1680,7 @@ class RadarBleManager private constructor(private val context: Context) {
             timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
             lastQueryDeviceInfo = updatedDeviceInfo
             callback?.invoke(updatedDeviceInfo, success)
-            disconnect()
+            //disconnect()
         }
 
         fun scheduleTimeout() {
@@ -1221,9 +1693,7 @@ class RadarBleManager private constructor(private val context: Context) {
         }
 
         Log.d(TAG, "Connecting to device for Wi-Fi scan")
-        connect(device)
-
-        blufiClient?.setBlufiCallback(object : BlufiCallback() {
+        connect(device, object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
                 gatt: BluetoothGatt,
@@ -1293,498 +1763,4 @@ class RadarBleManager private constructor(private val context: Context) {
     }
 
     //endregion
-
-    //region 配网、配服务器
-    // -------------- 5. 配网和服务器配置函数 --------------
-
-    /**
-     * 配置设备WiFi
-     *
-     * @param deviceInfo 设备信息
-     * @param wifiConfig WiFi配置
-     * @param callback 配置结果回调
-     */
-    fun configureWifi(
-        macAdd: String,
-        _ssid: String,
-        _password:String,
-        callback: ((Map<String, String>) -> Unit)? = null
-    ) {
-        Log.d(TAG, "Start configuring device WiFi:, SSID")
-
-        val device = resolveBluetoothDevice(macAdd) ?: run {
-            callback?.invoke(mapOf("error" to "Invalid device address"))
-            return
-        }
-
-        // 初始化状态信息
-        val resultMap = mutableMapOf<String, String>()
-
-
-        // 配置状态控制
-        var isComplete = false
-        var warmupRequested = false
-        var hasStartedConfig = false
-
-        // 配置超时
-        val configTimeoutRunnable = Runnable {
-            Log.e(TAG, "WiFi configuration timeout after 20 seconds")
-            if (!isComplete) {
-                isComplete = true
-                resultMap["error"] = "WiFi configuration timeout"
-                resultMap["success"] = "false"
-                callback?.invoke(resultMap)
-                disconnect()
-            }
-        }
-
-        // 连接设备
-        Log.d(TAG, "Connecting to device")
-        connect(device)
-
-        // 设置回调
-        blufiClient?.setBlufiCallback(object : BlufiCallback() {
-            override fun onGattPrepared(client: BlufiClient,
-                                        gatt: BluetoothGatt,
-                                        service: BluetoothGattService?,
-                                        writeChar: BluetoothGattCharacteristic?,
-                                        notifyChar: BluetoothGattCharacteristic?) {
-                if (service == null || writeChar == null || notifyChar == null) {
-                    Log.e(TAG, "Discover service failed")
-                    if (!isComplete) {
-                        isComplete = true
-                        resultMap["error"] = "Service discovery failed"
-                        resultMap["success"] = "false"
-                        callback?.invoke(resultMap)
-                        disconnect()
-                    }
-                    return
-                }
-
-                // 设置超时
-                mainHandler.postDelayed(configTimeoutRunnable, 20000)
-
-                // 开始安全协商
-                client.negotiateSecurity()
-            }
-
-            override fun onNegotiateSecurityResult(client: BlufiClient, status: Int) {
-                if (status == STATUS_SUCCESS) {
-                    // 安全协商成功，先执行预热指令获取运行状态
-                    sendWarmupCommand(client)
-                } else {
-                    // 安全协商失败
-                    if (!isComplete) {
-                        isComplete = true
-                        resultMap["error"] = "Security negotiation failed: $status"
-                        resultMap["success"] = "false"
-                        callback?.invoke(resultMap)
-                        mainHandler.removeCallbacks(configTimeoutRunnable)
-                        disconnect()
-                    }
-                }
-            }
-
-            private fun sendWarmupCommand(client: BlufiClient) {
-                if (warmupRequested || isComplete) return
-                warmupRequested = true
-                Log.d(TAG, "Sending warmup command (${RadarCommand.GET_DEVICE_MAC.code}) before WiFi configuration")
-                client.postCustomData(RadarCommand.GET_DEVICE_MAC.buildRequest().toByteArray())
-            }
-
-            private fun startWifiConfiguration(client: BlufiClient) {
-                if (isComplete || hasStartedConfig) return
-                hasStartedConfig = true
-                Log.d(TAG, "Warmup successful, starting WiFi configuration")
-                val params = BlufiConfigureParams().apply {
-                    opMode = 1  // STA模式
-                    staSSIDBytes = _ssid.toByteArray()
-                    staPassword = _password
-                }
-                client.configure(params)
-            }
-
-            override fun onPostConfigureParams(client: BlufiClient, status: Int) {
-                if (!isComplete) {
-                    isComplete = true
-
-                    if (status == STATUS_SUCCESS) {
-                        // WiFi配置成功
-                        resultMap["wifiConfigured"] = "true"
-                        resultMap["success"] = "true"
-                        Log.d(TAG, "WiFi configuration successful")
-                    } else {
-                        // WiFi配置失败
-                        resultMap["wifiConfigured"] = "false"
-                        resultMap["success"] = "false"
-                        resultMap["error"] = "WiFi configuration failed: $status"
-                        Log.e(TAG, "WiFi configuration failed with status: $status")
-                    }
-
-                    // 添加完成时间
-                    resultMap["completedAt"] = System.currentTimeMillis().toString()
-
-                    // 返回结果
-                    callback?.invoke(resultMap)
-
-                    // 清理资源
-                    mainHandler.removeCallbacks(configTimeoutRunnable)
-                    disconnect()
-                }
-            }
-
-            override fun onError(client: BlufiClient, errCode: Int) {
-                if (!isComplete) {
-                    isComplete = true
-                    resultMap["error"] = "Communication error: $errCode"
-                    resultMap["success"] = "false"
-                    resultMap["completedAt"] = System.currentTimeMillis().toString()
-                    callback?.invoke(resultMap)
-                    mainHandler.removeCallbacks(configTimeoutRunnable)
-                    disconnect()
-                }
-            }
-
-            override fun onReceiveCustomData(client: BlufiClient, status: Int, data: ByteArray) {
-                if (isComplete) return
-
-                val responseStr = runCatching { String(data) }.getOrNull()
-                val parsed = RadarCommand.parseResponse(responseStr)
-
-                if (parsed.command == RadarCommand.GET_DEVICE_MAC) {
-                    if (status == STATUS_SUCCESS && parsed.success != false) {
-                        val warmupResult = parsed.payload ?: responseStr.orEmpty()
-                        Log.d(TAG, "Warmup command response received before WiFi configuration: $warmupResult")
-                        resultMap["warmupStatus"] = warmupResult
-                        startWifiConfiguration(client)
-                    } else if (!isComplete) {
-                        isComplete = true
-                        resultMap["error"] = "Warmup command failed during WiFi configuration"
-                        resultMap["success"] = "false"
-                        callback?.invoke(resultMap)
-                        mainHandler.removeCallbacks(configTimeoutRunnable)
-                        disconnect()
-                    }
-                }
-            }
-        })
-    }
-
-    /**
-     * 配置设备服务器
-     *
-     * @param deviceInfo 设备信息
-     * @param serverConfig 服务器配置
-     * @param callback 配置结果回调
-     */
-    fun configureServer(
-        deviceInfo: DeviceInfo,
-        serverConfig: ServerConfig,
-        callback: ((Map<String, String>) -> Unit)? = null
-    ) {
-        Log.d(TAG, "Start configuring device server")
-
-        val device = resolveBluetoothDevice(deviceInfo.macAddress) ?: run {
-            callback?.invoke(mapOf("error" to "Invalid device address"))
-            return
-        }
-
-        // 初始化状态信息
-        val resultMap = mutableMapOf<String, String>()
-        resultMap["deviceId"] = deviceInfo.deviceId
-        resultMap["macAddress"] = deviceInfo.macAddress
-
-        // 配置状态控制
-        var isComplete = false
-        var addressConfigured = false
-        var portConfigured = false
-        var deviceRestarted = false
-        var warmupRequested = false
-        var serverCommandsStarted = false
-
-        // 配置超时
-        val configTimeoutRunnable = Runnable {
-            Log.e(TAG, "Server configuration timeout after 25 seconds")
-            if (!isComplete) {
-                isComplete = true
-                resultMap["error"] = "Server configuration timeout"
-                resultMap["success"] = "false"
-                callback?.invoke(resultMap)
-                disconnect()
-            }
-        }
-
-        // 连接设备
-        Log.d(TAG, "Connecting to device")
-        connect(device)
-
-        // 设置回调
-        blufiClient?.setBlufiCallback(object : BlufiCallback() {
-            override fun onGattPrepared(client: BlufiClient,
-                                        gatt: BluetoothGatt,
-                                        service: BluetoothGattService?,
-                                        writeChar: BluetoothGattCharacteristic?,
-                                        notifyChar: BluetoothGattCharacteristic?) {
-                if (service == null || writeChar == null || notifyChar == null) {
-                    Log.e(TAG, "Discover service failed")
-                    if (!isComplete) {
-                        isComplete = true
-                        resultMap["error"] = "Service discovery failed"
-                        resultMap["success"] = "false"
-                        callback?.invoke(resultMap)
-                        disconnect()
-                    }
-                    return
-                }
-
-                // 设置超时
-                mainHandler.postDelayed(configTimeoutRunnable, CONFIGSERVER_TIMEOUT)
-
-                // 开始安全协商
-                client.negotiateSecurity()
-            }
-
-            override fun onNegotiateSecurityResult(client: BlufiClient, status: Int) {
-                if (status == STATUS_SUCCESS) {
-                    // 安全协商成功，先执行预热命令
-                    sendWarmupCommand(client)
-                } else {
-                    // 安全协商失败
-                    if (!isComplete) {
-                        isComplete = true
-                        resultMap["error"] = "Security negotiation failed: $status"
-                        resultMap["success"] = "false"
-                        callback?.invoke(resultMap)
-                        mainHandler.removeCallbacks(configTimeoutRunnable)
-                        disconnect()
-                    }
-                }
-            }
-
-            private fun sendWarmupCommand(client: BlufiClient) {
-                if (warmupRequested || isComplete) return
-                warmupRequested = true
-                Log.d(TAG, "Sending warmup command (${RadarCommand.GET_DEVICE_MAC.code}) before server configuration")
-                client.postCustomData(RadarCommand.GET_DEVICE_MAC.buildRequest().toByteArray())
-            }
-
-            private fun sendServerCommands(client: BlufiClient) {
-                if (serverCommandsStarted || isComplete) return
-                serverCommandsStarted = true
-                // 发送服务器地址
-                val serverCmd = RadarCommand.SET_SERVER_ADDRESS.buildRequest(serverConfig.serverAddress)
-                Log.d(TAG, "Sending server address command: $serverCmd")
-                client.postCustomData(serverCmd.toByteArray())
-
-                // 等待服务器地址响应后再发送端口 - 延迟发送端口命令
-                mainHandler.postDelayed({
-                    if (!isComplete) {  // 检查是否已完成
-                        // 发送服务器端口
-                        val portCmd = RadarCommand.SET_SERVER_PORT.buildRequest(serverConfig.port.toString())
-                        Log.d(TAG, "Sending server port command: $portCmd")
-                        client.postCustomData(portCmd.toByteArray())
-
-                        // 等待端口响应后再发送额外命令
-                        mainHandler.postDelayed({
-                            if (!isComplete) {  // 再次检查是否已完成
-                                // 发送必要的额外命令
-                                sendExtraCommands(client)
-                            }
-                        }, COMMAND_DELAYTIME)
-                    }
-                }, COMMAND_DELAYTIME)
-            }
-
-            private fun sendExtraCommands(client: BlufiClient) {
-                // 发送命令 3:0
-                Log.d(TAG, "Sending extra command 3:0")
-                client.postCustomData("3:0".toByteArray())
-
-                // 等待响应后发送下一个命令
-                mainHandler.postDelayed({
-                    if (!isComplete) {  // 检查是否已完成
-                        // 发送命令 8:0
-                        Log.d(TAG, "Sending extra command 8:0")
-                client.postCustomData("8:0".toByteArray())
-
-                        // 等待响应后重启设备
-                        mainHandler.postDelayed({
-                            if (!isComplete) {  // 再次检查是否已完成
-                                // 重启设备
-                                sendRestartCommand(client)
-                            }
-                        }, COMMAND_DELAYTIME)
-                    }
-                }, COMMAND_DELAYTIME)
-            }
-
-            private fun sendRestartCommand(client: BlufiClient) {
-                // 发送重启命令
-                Log.d(TAG, "Sending restart command 8:")
-                client.postCustomData(RadarCommand.RESTART_DEVICE.buildRequest().toByteArray())
-
-                // 如果5秒后仍未收到重启响应，则认为重启已经开始但无法收到响应，认为配置完成
-                mainHandler.postDelayed({
-                    if (!isComplete) {
-                        // 还未收到重启响应，但认为已经在重启中
-                        isComplete = true
-
-                        // 添加最终状态
-                        resultMap["deviceRestarted"] = "unknown"
-
-                        // 检查整体配置是否成功 - 至少服务器地址或端口配置成功
-                        val success = addressConfigured || portConfigured
-                        resultMap["success"] = success.toString()
-
-                        // 添加完成时间
-                        resultMap["completedAt"] = System.currentTimeMillis().toString()
-
-                        // 返回结果
-                        Log.d(TAG, "Configuration completed with timeout, result: $resultMap")
-                        callback?.invoke(resultMap)
-
-                        // 清理资源
-                        mainHandler.removeCallbacks(configTimeoutRunnable)
-                        disconnect()
-                    }
-                }, DEVICERESTART_DELAYTIME)
-            }
-
-            override fun onReceiveCustomData(client: BlufiClient, status: Int, data: ByteArray) {
-                try {
-                    val responseStr = String(data)
-                    Log.d(TAG, "Received custom data: $responseStr")
-
-                    val parsed = RadarCommand.parseResponse(responseStr)
-                    val raw = parsed.raw ?: responseStr
-
-                    when (parsed.command) {
-                        RadarCommand.GET_DEVICE_MAC -> {
-                            if (status == STATUS_SUCCESS && parsed.success != false) {
-                                Log.d(TAG, "Warmup command response received before server configuration: ${parsed.payload ?: raw}")
-                                resultMap["warmupStatus"] = parsed.payload ?: raw
-                                sendServerCommands(client)
-                            } else if (!isComplete) {
-                                isComplete = true
-                                resultMap["error"] = "Warmup command failed during server configuration"
-                                resultMap["success"] = "false"
-                                callback?.invoke(resultMap)
-                                mainHandler.removeCallbacks(configTimeoutRunnable)
-                                disconnect()
-                            }
-                        }
-
-                        RadarCommand.SET_SERVER_ADDRESS -> {
-                            val success = parsed.success == true
-                            addressConfigured = success
-                            resultMap["serverAddressSuccess"] = success.toString()
-                            Log.d(TAG, "Server address configuration ${if (success) "successful" else "failed"}")
-                        }
-
-                        RadarCommand.SET_SERVER_PORT -> {
-                            val success = parsed.success == true
-                            portConfigured = success
-                            resultMap["serverPortSuccess"] = success.toString()
-                            Log.d(TAG, "Server port configuration ${if (success) "successful" else "failed"}")
-                        }
-
-                        RadarCommand.RESTART_DEVICE -> {
-                            val success = parsed.success == true
-                            deviceRestarted = success
-                            resultMap["deviceRestarted"] = success.toString()
-                            Log.d(TAG, "Device restart ${if (success) "successful" else "failed"}")
-
-                            if (!isComplete) {
-                                isComplete = true
-                                val overallSuccess = addressConfigured || portConfigured
-                                resultMap["success"] = overallSuccess.toString()
-                                resultMap["completedAt"] = System.currentTimeMillis().toString()
-                                callback?.invoke(resultMap)
-                                mainHandler.removeCallbacks(configTimeoutRunnable)
-                                disconnect()
-                            }
-                        }
-
-                        else -> {
-                            // 保留原有字符串，供上层调试
-                            resultMap["unknownResponse"] = parsed.payload ?: raw
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing custom data response", e)
-                    resultMap["parseError"] = e.message ?: "Unknown error"
-                }
-            }
-
-            override fun onError(client: BlufiClient, errCode: Int) {
-                if (!isComplete) {
-                    isComplete = true
-                    resultMap["error"] = "Communication error: $errCode"
-                    resultMap["success"] = "false"
-                    resultMap["completedAt"] = System.currentTimeMillis().toString()
-                    callback?.invoke(resultMap)
-                    mainHandler.removeCallbacks(configTimeoutRunnable)
-                    disconnect()
-                }
-            }
-        })
-    }
-
-//endregion
-
-//---------------A厂自定义---------
-    /**
-     * 重启设备
-     *
-     * @param callback 结果回调
-     */
-    fun restartDevice(callback: ((Boolean) -> Unit)? = null) {
-        // 发送重启指令 8:
-        val restartCmd = "8:"
-        configureCallback = callback
-        postCustomData(restartCmd.toByteArray())
-    }
-
-    /**
-     * 获取设备UID
-     *
-     * @param onResult 结果回调，传递UID字符串
-     */
-    fun getDeviceUID(onResult: (String?) -> Unit) {
-        // 发送获取UID指令 12:
-        val uidCmd = "12:"
-
-        // 这里假设设备会通过自定义数据返回UID
-        // 实际实现可能需要在BlufiCallback中处理返回数据
-        postCustomData(uidCmd.toByteArray())
-
-        // 注意：这里需要在接收到设备返回数据后回调
-        // 此处仅为示例，实际实现应在onReceiveCustomData中处理
-    }
-
-    private fun handleGattFailure(status: Int): Boolean {
-        if (!isRetryEnabled) {
-            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
-            return false
-        }
-        val mac = currentDeviceMac
-        if (mac.isNullOrBlank()) {
-            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
-            return false
-        }
-        if (!isConnecting) {
-            isConnecting = true
-        }
-        if (errorCount >= MAX_RETRY_COUNT) {
-            notifyErrorCallback?.invoke(ErrorType.CONNECTION_TIMEOUT, "Connection failed: $status")
-            return false
-        }
-        errorCount++
-        stopKeepAlive()
-        mainHandler.postDelayed({
-            disconnect()
-            connect(mac)
-        }, RECONNECT_DELAY)
-        return true
-    }
 }

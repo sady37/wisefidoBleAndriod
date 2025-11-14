@@ -37,3 +37,13 @@ WiseFido BleconfigforAndriod
         - Wi-Fi/Server 列表支持左侧 `Del` 删除按钮，Wi-Fi 密码默认掩码，点击眼睛临时明文展示 3 秒。
         - 历史记录最多保留 5 组，Wi-Fi 密码加密存储并兼容旧数据。
     5. 构建环境升级：所有模块统一使用 Java 17、Kotlin 2.2.0，补充 RecyclerView 等依赖。
+20251114  Query & Config
+    Query
+        - 同步执行 BluFi 状态请求并追加厂家指令 65/12/62/10。
+        - 序列化队列保障多段自定义响应完整解析，运行状态统一整理后输出。
+        - 查询完成后默认保留 GATT 连接，供配置流程复用。
+        - 明确 Wi-Fi RSSI 只有在 62 返回的 SSID 与 nearby Wi-Fi 匹配时才会更新。
+    Config (Radar)
+        - 单次会话串行完成预热(UID)→Wi-Fi→服务器→重启，支持复用既有连接。
+        - Wi-Fi/服务器阶段仅在收到 1:0、2:0 等成功回包时更新状态；3:0 后自动触发 8:，并在 3 秒内无回复时默认提示等待重启。
+        - 配网期间所有阶段消息通过 statusCallback 直接回传，状态栏持续追加。
