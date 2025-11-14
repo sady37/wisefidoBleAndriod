@@ -37,7 +37,7 @@ WiseFido BleconfigforAndriod
         - Wi-Fi/Server 列表支持左侧 `Del` 删除按钮，Wi-Fi 密码默认掩码，点击眼睛临时明文展示 3 秒。
         - 历史记录最多保留 5 组，Wi-Fi 密码加密存储并兼容旧数据。
     5. 构建环境升级：所有模块统一使用 Java 17、Kotlin 2.2.0，补充 RecyclerView 等依赖。
-20251114  Query & Config
+20251113  v1.02 Query & Config
     Query
         - 同步执行 BluFi 状态请求并追加厂家指令 65/12/62/10。
         - 序列化队列保障多段自定义响应完整解析，运行状态统一整理后输出。
@@ -47,3 +47,12 @@ WiseFido BleconfigforAndriod
         - 单次会话串行完成预热(UID)→Wi-Fi→服务器→重启，支持复用既有连接。
         - Wi-Fi/服务器阶段仅在收到 1:0、2:0 等成功回包时更新状态；3:0 后自动触发 8:，并在 3 秒内无回复时默认提示等待重启。
         - 配网期间所有阶段消息通过 statusCallback 直接回传，状态栏持续追加。
+
+20251113 v1.03  Query esp/speace
+
+
+handleQueryButton: 会根据 productorName 分流：
+Radar (ProductorRadarQL) → queryRadarStatus: 执行完整的状态查询；
+ESP (ProductorEspBle) → queryEspStatus: 只触发 scanNearbyWiFiForDevice，即仅扫描附近 Wi-Fi；
+SleepBoard (ProductorSleepBoardHS) → querySleepaceStatus: 调用 SleepaceBleManager，若设备类型不支持会直接提示 “deviceType BM8701_2 is not support query”。
+对应地，Android 端需要模仿这种分支逻辑：Radar 查询走全量指令；ESP 仅进行附近 Wi-Fi 扫描；SleepBoard 要么提示不支持，要么调用单独的 Sleepace 管理器。

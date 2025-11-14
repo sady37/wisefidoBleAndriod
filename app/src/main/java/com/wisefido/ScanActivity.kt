@@ -419,11 +419,14 @@ class ScanActivity : AppCompatActivity() {
         //Log.d(TAG, "Starting radar scan with filter: $currentFilterPrefix, type: $currentFilterType")
 
         radarManager.setScanCallback { deviceInfo ->
-            //Log.d(TAG, "Received scan result: ${result.device.name ?: "null"}, ${result.device.address}")
-
             runOnUiThread {
                 if (!deviceList.any { it.macAddress == deviceInfo.macAddress }) {
-                    deviceList.add(deviceInfo)
+                    val adjustedDevice = if (currentScanModule != Productor.radarQL) {
+                        deviceInfo.copy(productorName = currentScanModule)
+                    } else {
+                        deviceInfo
+                    }
+                    deviceList.add(adjustedDevice)
                     rvDevices.adapter?.notifyItemInserted(deviceList.size - 1)
                 }
             }

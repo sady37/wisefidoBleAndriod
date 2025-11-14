@@ -716,8 +716,8 @@ class MainActivity : AppCompatActivity() {
                 querySleepaceStatus()
             }
             Productor.espBle -> {
-                showMessage("Querying device status...")
-                queryRadarStatus()
+                showMessage("Querying ESP nearby Wi-Fi...")
+                queryEspStatus()
             }
             else -> showMessage(getString(R.string.toast_unknown_device_type))
         }
@@ -800,24 +800,49 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    private fun queryEspStatus() {
+        val deviceInfo = selectedDevice ?: return
+        val radarManager = RadarBleManager.getInstance(this)
+        
+        radarManager.scanNearbyWiFiForDevice(deviceInfo) { updatedDevice, success ->
+            runOnUiThread {
+                if (!success) {
+                    showMessage("Failed to scan ESP nearby Wi-Fi")
+                    return@runOnUiThread
+                }
+                
+                selectedDevice = updatedDevice
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val info = StringBuilder().apply {
+                    append("deviceName:${updatedDevice.deviceName}\n")
+                    append("deviceId:${updatedDevice.deviceId}\n")
+                    append("macAddress:${updatedDevice.macAddress}\n")
+                    append("BLErssi:${updatedDevice.rssi}dBm\n")
+                    
+                    updatedDevice.nearbyWiFiNetworks?.let { networks ->
+                        append("nearbyWiFi:\n")
+                        networks.forEachIndexed { index, network ->
+                            val ssid = network.ssid.ifBlank { "(hidden SSID)" }
+                            val rssiValue = network.rssi?.toString() ?: ""
+                            append("  ${index + 1}. $ssid (RSSI:$rssiValue dBm)\n")
+                        }
+                    } ?: append("nearbyWiFi:\n")
+                    
+                    append("lastUpdateTime:${dateFormat.format(Date())}\n")
+                }.toString()
+                
+                tvStatusOutput.text = info
+                hideMessage()
+                showMessage("Query completed")
+            }
+        }
+    }
+
     private fun querySleepaceStatus() {
         val deviceInfo = selectedDevice ?: return
-        // 从 BleDeviceManager 获取设备对象
-        val bleDevice = BleDeviceManager.getDeviceAs(deviceInfo.macAddress, com.sleepace.sdk.domain.BleDevice::class.java) ?: run {
-            showMessage(getString(R.string.toast_invalid_device))
-            return
-        }
-
-        val info = StringBuilder().apply {
-            append("Device Info:\n")
-            append("  Device ID: ${deviceInfo.deviceId}\n")
-            append("  MAC: ${deviceInfo.macAddress}\n")
-            append("  RSSI: ${deviceInfo.rssi}dBm\n")
-            append("  VersionCode: ${bleDevice.versionCode}\n")
-        }.toString()
-
-        tvStatusOutput.text = info
-        showMessage("Query completed")
+        // SleepBoard 设备不支持查询，直接提示
+        showMessage("Failed, please rescan; deviceType BM8701_2 is not support query")
+        tvStatusOutput.text = "Query not supported for SleepBoard devices"
     }
 
     // endregion
