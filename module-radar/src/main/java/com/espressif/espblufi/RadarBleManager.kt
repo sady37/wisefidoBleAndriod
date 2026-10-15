@@ -1009,14 +1009,21 @@ class RadarBleManager private constructor(private val context: Context) {
      * @param filterType 过滤类型，默认为设备名称过滤
      */
     fun startScan(filterPrefix: String?, filterType: FilterType = FilterType.DEVICE_NAME) {
-        if (isScanning) return
-        //Log.d(TAG,"RadarBleManager startScan with filterPrefix: '$filterPrefix', filterType: $filterType")
+        if (isScanning) {
+            Log.d(TAG, "startScan ignored: already scanning")
+            return
+        }
+        Log.d(TAG,"RadarBleManager startScan with filterPrefix: '$filterPrefix', filterType: $filterType")
         this.filterPrefix = filterPrefix
         this.filterType = filterType
 
-        bluetoothAdapter?.bluetoothLeScanner?.let { scanner ->
+        val leScanner = bluetoothAdapter?.bluetoothLeScanner
+        if (leScanner == null) {
+            Log.e(TAG, "startScan failed: bluetoothAdapter=$bluetoothAdapter, leScanner=null")
+            return
+        }
+        leScanner.let { scanner ->
             isScanning = true
-
             val settings = ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
@@ -1051,6 +1058,7 @@ class RadarBleManager private constructor(private val context: Context) {
 
     private val leScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            Log.d(TAG, "onScanResult: name=${result.device.name}, mac=${result.device.address}, rssi=${result.rssi}")
             // 只有在设置了过滤条件时才进行过滤
             val prefix = filterPrefix
             if (!prefix.isNullOrEmpty()) {

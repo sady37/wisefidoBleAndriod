@@ -50,15 +50,27 @@ import com.common.ServerConfig
 import com.common.WifiConfig
 import com.bleconfig.sleepace.SleepaceBleManager
 import com.espressif.espblufi.RadarBleManager
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.ZoomSuggestionOptions
+import androidx.camera.core.Camera
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.common.InputImage
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import android.util.Size
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import com.google.gson.Gson
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textview.MaterialTextView
-import com.google.zxing.BarcodeFormat
-import com.journeyapps.barcodescanner.BarcodeCallback
-import com.journeyapps.barcodescanner.BarcodeResult
-import com.journeyapps.barcodescanner.DecoratedBarcodeView
-import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import com.sleepace.sdk.constant.StatusCode
 import com.sleepace.sdk.domain.BleDevice
 import java.text.SimpleDateFormat
@@ -74,16 +86,23 @@ class MainActivity : AppCompatActivity() {
         private const val CAMERA_PERMISSION_REQUEST_CODE = 300
         private const val QR_MATCH_STAGE1_TIMEOUT = 3000L
         private const val QR_MATCH_TOTAL_TIMEOUT = 10000L
-        // 定义所需权限
+        // 定义所需权限：Android 12+ 用新的蓝牙权限，以下版本 BLE 扫描依赖定位权限
         private val REQUIRED_PERMISSIONS =
-            arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.CHANGE_WIFI_STATE
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_WIFI_STATE,
+                    Manifest.permission.CHANGE_WIFI_STATE
+                )
+            else
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    Manifest.permission.ACCESS_WIFI_STATE,
+                    Manifest.permission.CHANGE_WIFI_STATE
+                )
     }
 
     // region 属性定义
@@ -140,8 +159,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     private fun updateDeviceDisplay(device: DeviceInfo?) {
         if (device == null) {
-            tvDeviceId.text = "No Device"
-            tvDeviceRssi.text = "--"
+            tvDeviceId.text = getString(R.string.hint_scan_device)
+            tvDeviceId.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            tvDeviceRssi.text = ""
             updateActionButtonsState()
             return
         }
@@ -149,6 +169,7 @@ class MainActivity : AppCompatActivity() {
         // 更新设备信息显示
         layoutDeviceInfo.visibility = View.VISIBLE
         tvDeviceId.text = device.deviceId
+        tvDeviceId.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
         tvDeviceRssi.text = device.rssi.toString() + "dBm"
         updateActionButtonsState()
     }
@@ -268,10 +289,15 @@ class MainActivity : AppCompatActivity() {
         btnQrScan.setOnClickListener {
             if (qrMatching) {
                 cancelQrMatch()
-            } else if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                return@setOnClickListener
+            }
+            // Android 9 等旧版本 BLE 扫描依赖定位权限，扫码匹配前一并检查
+            val needed = (REQUIRED_PERMISSIONS + Manifest.permission.CAMERA)
+                .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+            if (needed.isEmpty()) {
                 showQrScanDialog()
             } else {
-                requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST_CODE)
+                requestPermissions(needed.toTypedArray(), CAMERA_PERMISSION_REQUEST_CODE)
             }
         }
 
@@ -553,29 +579,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     // region 首页扫码匹配
-    private var qrDialog: Dialog? = null
-    private var qrBarcodeView: DecoratedBarcodeView? = null
     private var qrProgressDialog: androidx.appcompat.app.AlertDialog? = null
     private var qrMatching = false
     private var qrMatchCode = ""
     private var qrOriginalCode = ""
+    private val qrSeenDevices = mutableSetOf<String>()
     private val qrHandler = Handler(Looper.getMainLooper())
     private val qrStage1Runnable = Runnable { startQrStage2() }
     private val qrTimeoutRunnable = Runnable { onQrMatchTimeout() }
 
     /**
-     * 弹出靠上的小扫码窗口（高约屏幕 40%）
+     * 弹出靠上的小扫码窗口（高约屏幕 40%）：CameraX 预览 + ML Kit 内置模型识别二维码
      */
     private fun showQrScanDialog() {
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_qr_scan, null)
-        val container = view.findViewById<View>(R.id.barcode_container)
-        // 高约屏幕 40%
+        val container = view.findViewById<android.widget.FrameLayout>(R.id.barcode_container)
         container.layoutParams.height = (resources.displayMetrics.heightPixels * 0.4).toInt()
 
-        val barcodeView = DecoratedBarcodeView(this)
-        barcodeView.barcodeView.decoderFactory = DefaultDecoderFactory(listOf(BarcodeFormat.QR_CODE))
-        barcodeView.setStatusText(getString(R.string.scan_qr_title))
-        (container as? android.widget.FrameLayout)?.addView(barcodeView)
+        val previewView = PreviewView(this)
+        container.addView(previewView)
 
         val dialog = Dialog(this)
         dialog.setContentView(view)
@@ -585,33 +607,103 @@ class MainActivity : AppCompatActivity() {
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
+        val analysisExecutor = Executors.newSingleThreadExecutor()
+        var camera: Camera? = null
+        // 码太小时，ML Kit 能检测到位置但解不出内容，此时由它建议放大倍数（自动变焦）
+        val scanner = BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .setZoomSuggestionOptions(
+                    ZoomSuggestionOptions.Builder { zoomRatio ->
+                        camera?.cameraControl?.setZoomRatio(zoomRatio)
+                        true
+                    }.setMaxSupportedZoomRatio(4f).build()
+                ).build()
+        )
+        val handled = AtomicBoolean(false)
+        var cameraProvider: ProcessCameraProvider? = null
+
         view.findViewById<View>(R.id.btn_qr_close).setOnClickListener { dialog.dismiss() }
         dialog.setOnDismissListener {
-            barcodeView.pause()
-            qrBarcodeView = null
-            qrDialog = null
+            cameraProvider?.unbindAll()
+            scanner.close()
+            analysisExecutor.shutdown()
         }
 
-        barcodeView.decodeSingle(object : BarcodeCallback {
-            override fun barcodeResult(result: BarcodeResult?) {
-                val text = result?.text?.trim()
-                if (!text.isNullOrEmpty()) {
-                    dialog.dismiss()
-                    startQrMatch(text)
+        val providerFuture = ProcessCameraProvider.getInstance(this)
+        providerFuture.addListener({
+            if (!dialog.isShowing) return@addListener
+            val provider = providerFuture.get()
+            cameraProvider = provider
+            // 分析默认只有 640x480，小二维码识别不出来；提高到 1080p
+            val hiRes = ResolutionSelector.Builder()
+                .setResolutionStrategy(
+                    ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
+                ).build()
+            val preview = Preview.Builder().setResolutionSelector(hiRes).build()
+                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+            val analysis = ImageAnalysis.Builder()
+                .setResolutionSelector(hiRes)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+            analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                val mediaImage = imageProxy.image
+                if (mediaImage == null || handled.get()) {
+                    imageProxy.close()
+                    return@setAnalyzer
                 }
+                val input = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                scanner.process(input)
+                    .addOnSuccessListener { codes ->
+                        val text = codes.firstNotNullOfOrNull { it.rawValue?.trim()?.takeIf { v -> v.isNotEmpty() } }
+                        if (text != null && handled.compareAndSet(false, true)) {
+                            dialog.dismiss()
+                            startQrMatch(text)
+                        }
+                    }
+                    .addOnCompleteListener { imageProxy.close() }
             }
-        })
+            try {
+                provider.unbindAll()
+                camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val cam = camera!!
+                // 设备码只有约 1cm，起始放大 2 倍，ML Kit 仍会按需继续建议变焦
+                cam.cameraControl.setZoomRatio(2f)
+                // 对画面中心每 2 秒重新对焦一次；点击预览可手动对焦
+                val focusHandler = Handler(Looper.getMainLooper())
+                fun focusAt(x: Float, y: Float) {
+                    val point = previewView.meteringPointFactory.createPoint(x, y)
+                    cam.cameraControl.startFocusAndMetering(
+                        FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+                            .setAutoCancelDuration(2, java.util.concurrent.TimeUnit.SECONDS).build()
+                    )
+                }
+                val focusLoop = object : Runnable {
+                    override fun run() {
+                        if (!dialog.isShowing) return
+                        focusAt(previewView.width / 2f, previewView.height / 2f)
+                        focusHandler.postDelayed(this, 2000)
+                    }
+                }
+                previewView.setOnTouchListener { v, ev ->
+                    if (ev.action == android.view.MotionEvent.ACTION_UP) { focusAt(ev.x, ev.y); v.performClick() }
+                    true
+                }
+                focusHandler.post(focusLoop)
+            } catch (e: Exception) {
+                Log.e(TAG, "QR camera bind failed", e)
+                dialog.dismiss()
+                showMessage(getString(R.string.qr_scan_failed))
+            }
+        }, ContextCompat.getMainExecutor(this))
 
-        qrBarcodeView = barcodeView
-        qrDialog = dialog
-        dialog.setOnShowListener { barcodeView.resume() }
         dialog.show()
-        barcodeView.resume()
         appendStatusLine(getString(R.string.scan_qr_title))
     }
 
     /**
-     * 扫码成功后开始匹配设备：BM 开头走 Sleepace，否则走 ESP 雷达
+     * 扫码成功后开始匹配设备：BM 开头走 Sleepace 直接匹配 QR 码；
+     * 否则按 ESP 雷达处理，先用 "TSBLU"+后 6 位匹配，3 秒未命中再用完整 QR 码兜底
      */
     @SuppressLint("MissingPermission")
     private fun startQrMatch(code: String) {
@@ -619,8 +711,10 @@ class MainActivity : AppCompatActivity() {
         stopQrMatch()
         qrMatching = true
         qrOriginalCode = code
-        qrMatchCode = code
-        appendStatusLine("QR code: $code, matching device...")
+        qrMatchCode = if (code.startsWith("BM", ignoreCase = true)) code
+        else "TSBLU" + code.takeLast(6).uppercase()
+        qrSeenDevices.clear()
+        appendStatusLine("QR code: $code, matching device: $qrMatchCode")
         // 匹配前断开残留的 GATT 连接，让设备恢复广播
         RadarBleManager.getInstance(this).disconnect()
         startQrStage1()
@@ -651,7 +745,9 @@ class MainActivity : AppCompatActivity() {
             val radar = RadarBleManager.getInstance(this)
             radar.setScanCallback { dev ->
                 runOnUiThread {
-                    if (qrMatching && qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
+                    if (!qrMatching) return@runOnUiThread
+                    reportQrScannedDevice(dev)
+                    if (qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
                 }
             }
             radar.startScan("", FilterType.DEVICE_NAME)
@@ -659,19 +755,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 3 秒未命中：取 code 最后 6 位拼 "TSBLU" 前缀，继续用 ESP 匹配
+     * 匹配过程中把扫到的设备实时打到状态栏，方便确认设备是否在广播
+     */
+    private fun reportQrScannedDevice(dev: DeviceInfo) {
+        if (qrSeenDevices.add(dev.macAddress)) {
+            appendStatusLine("Scanned: ${dev.deviceName} (${dev.macAddress})")
+        }
+    }
+
+    /**
+     * 3 秒未命中：ESP 雷达改用完整 QR 码兜底匹配；Sleepace 无兜底，继续原扫描
      */
     @SuppressLint("MissingPermission")
     private fun startQrStage2() {
         if (!qrMatching) return
-        val fallback = "TSBLU" + qrOriginalCode.takeLast(6).uppercase()
-        appendStatusLine("Trying fallback device id: $fallback")
-        qrMatchCode = fallback
+        if (qrOriginalCode.startsWith("BM", ignoreCase = true)) return
+        appendStatusLine("Trying fallback device id: $qrOriginalCode")
+        qrMatchCode = qrOriginalCode
         stopQrScans()
         val radar = RadarBleManager.getInstance(this)
         radar.setScanCallback { dev ->
             runOnUiThread {
-                if (qrMatching && qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
+                if (!qrMatching) return@runOnUiThread
+                reportQrScannedDevice(dev)
+                if (qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
             }
         }
         radar.startScan("", FilterType.DEVICE_NAME)
@@ -681,8 +788,17 @@ class MainActivity : AppCompatActivity() {
         val c = code.trim()
         fun String?.eqCode() = this?.equals(c, ignoreCase = true) == true
         fun String.stripColon() = replace(":", "")
-        return dev.deviceId.eqCode() || dev.deviceName.eqCode() || dev.macAddress.eqCode() ||
-                dev.macAddress.stripColon().equals(c.stripColon(), ignoreCase = true)
+        if (dev.deviceId.eqCode() || dev.deviceName.eqCode() || dev.macAddress.eqCode() ||
+                dev.macAddress.stripColon().equals(c.stripColon(), ignoreCase = true)) return true
+        // 设备广播名为 "TSBLU"+MAC 后 6 位；QR 码是完整 MAC/序列号时做后缀匹配
+        val suffix6 = c.stripColon().takeLast(6)
+        if (suffix6.length == 6) {
+            val tsblu = "TSBLU$suffix6"
+            if (dev.deviceName.equals(tsblu, ignoreCase = true) ||
+                    dev.deviceId.equals(tsblu, ignoreCase = true)) return true
+            if (dev.macAddress.stripColon().endsWith(suffix6, ignoreCase = true)) return true
+        }
+        return false
     }
 
     private fun onQrMatchHit(device: DeviceInfo) {
@@ -735,7 +851,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             CAMERA_PERMISSION_REQUEST_CODE -> {
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                     showQrScanDialog()
                 } else {
                     Toast.makeText(this, getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()

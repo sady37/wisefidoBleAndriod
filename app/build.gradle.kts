@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.wisefido"
-        minSdk = 31  //28
+        minSdk = 28
         targetSdk = 35
         versionCode = 3
         versionName = "1.1"
@@ -71,7 +71,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")  // 添加 Gson 依赖
 
     // 二维码扫描
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")  // 内置模型，无需下载
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
 
 
     // 测试依赖

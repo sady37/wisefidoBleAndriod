@@ -15,8 +15,10 @@
     <string name="title_ble_wifi">BLE to Wi-Fi Configuration</string>
     <string name="step_1">STEP 1</string>
     <string name="hint_select_device">Select device ID</string>
+    <string name="qr_scan_failed">QR scan failed, please try again</string>
+    <string name="hint_scan_device">Scan QR or BLE to select device</string>
     <string name="step_2">STEP 2</string>
-    <string name="hint_server_info">Server information to be connected by the device</string>
+    <string name="hint_server_info">Server address the device will connect to</string>
     <string name="hint_server_address">app.wisefido.com or 47.90.180.176 </string>
     <string name="hint_server_port">29015(TLS) or 29010</string>
     <string name="step_3">STEP 3</string>

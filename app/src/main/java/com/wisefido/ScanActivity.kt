@@ -125,6 +125,15 @@ class ScanActivity : AppCompatActivity() {
         const val EXTRA_DEVICE_TYPE = "device_type"
         const val EXTRA_DEVICE_INFO = "extra_device_info"  // 添加这一行
         private const val SCAN_TIMEOUT = 10500L  // 与 RadarBleManager+500 的超时时间
+        // Android 12+ 用 BLUETOOTH_SCAN，以下版本 BLE 扫描依赖定位权限
+        private val BLE_SCAN_PERMISSIONS =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN)
+            else
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
     }
 
     // 视图组件
@@ -388,7 +397,7 @@ class ScanActivity : AppCompatActivity() {
             return
         }
 
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+        if (BLE_SCAN_PERMISSIONS.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
             // 开始新的扫描时才清空列表
             deviceList.clear()
             rvDevices.adapter?.notifyDataSetChanged()
@@ -405,7 +414,7 @@ class ScanActivity : AppCompatActivity() {
                 else -> startRadarScan()  // radar和filter都用这个
             }
         } else {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN), PERMISSION_REQUEST_CODE)
+            requestPermissions(BLE_SCAN_PERMISSIONS, PERMISSION_REQUEST_CODE)
         }
     }
 
@@ -538,7 +547,7 @@ class ScanActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                 // 权限已授予，重新启动扫描
                 startScan()
             } else {
