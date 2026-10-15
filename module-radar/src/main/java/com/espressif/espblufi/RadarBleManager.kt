@@ -258,12 +258,14 @@ class RadarBleManager private constructor(private val context: Context) {
         return object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
-                status: Int,
-                gatt: BluetoothGatt?
+                gatt: BluetoothGatt,
+                service: BluetoothGattService?,
+                writeChar: BluetoothGattCharacteristic?,
+                notifyChar: BluetoothGattCharacteristic?
             ) {
                 if (currentConfig !== context) return
-                if (status != STATUS_SUCCESS) {
-                    failConfiguration(context, "Service discovery failed, status: $status")
+                if (service == null || writeChar == null || notifyChar == null) {
+                    failConfiguration(context, "Service discovery failed")
                     return
                 }
                 postConfigStatus(context, "Negotiating security...")
@@ -880,12 +882,14 @@ class RadarBleManager private constructor(private val context: Context) {
         return object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
-                status: Int,
-                gatt: BluetoothGatt?
+                gatt: BluetoothGatt,
+                service: BluetoothGattService?,
+                writeChar: BluetoothGattCharacteristic?,
+                notifyChar: BluetoothGattCharacteristic?
             ) {
                 //Log.d(TAG, "onGattPrepared: service=${service != null}, write=${writeChar != null}, notify=${notifyChar != null}")
-                if (status != STATUS_SUCCESS) {
-                    Log.e(TAG, "Discover service failed, status: $status")
+                if (service == null || writeChar == null || notifyChar == null) {
+                    Log.e(TAG, "Discover service failed")
                     disconnect()
                     return
                 }
@@ -1294,11 +1298,13 @@ class RadarBleManager private constructor(private val context: Context) {
         connect(device, object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
-                status: Int,
-                gatt: BluetoothGatt?
+                gatt: BluetoothGatt,
+                service: BluetoothGattService?,
+                writeChar: BluetoothGattCharacteristic?,
+                notifyChar: BluetoothGattCharacteristic?
             ) {
-                if (status != STATUS_SUCCESS) {
-                    Log.e(TAG, "Discover service failed, status: $status")
+                if (service == null || writeChar == null || notifyChar == null) {
+                    Log.e(TAG, "Discover service failed")
                     statusMap["error"] = "Service discovery failed"
                     complete()
                     return
@@ -1690,11 +1696,13 @@ class RadarBleManager private constructor(private val context: Context) {
         connect(device, object : BlufiCallback() {
             override fun onGattPrepared(
                 client: BlufiClient,
-                status: Int,
-                gatt: BluetoothGatt?
+                gatt: BluetoothGatt,
+                service: BluetoothGattService?,
+                writeChar: BluetoothGattCharacteristic?,
+                notifyChar: BluetoothGattCharacteristic?
             ) {
-                if (status != STATUS_SUCCESS) {
-                    Log.e(TAG, "Discover service failed during Wi-Fi scan, status: $status")
+                if (service == null || writeChar == null || notifyChar == null) {
+                    Log.e(TAG, "Discover service failed during Wi-Fi scan")
                     finish(false)
                     return
                 }

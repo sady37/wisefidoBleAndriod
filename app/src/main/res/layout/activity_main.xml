@@ -335,12 +335,12 @@
             android:nestedScrollingEnabled="false"
             android:visibility="gone" />
 
-        <!-- Status Display：内容不足一屏时 weight=1 自动延伸到底部，超出时随主屏滚动 -->
+        <!-- Status Display：ScrollView 内不能用 0dp+weight（会塌成一行），用 wrap_content + minHeight -->
         <TextView
             android:id="@+id/tv_status_output"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:minHeight="240dp"
             android:layout_marginTop="@dimen/spacing_medium"
             android:background="@drawable/bg_input_border"
             android:textSize="14sp"

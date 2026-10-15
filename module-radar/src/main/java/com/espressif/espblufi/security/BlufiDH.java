@@ -24,7 +24,6 @@ public class BlufiDH {
 
     private final BigInteger mP;
     private final BigInteger mG;
-    private final int mLength;
 
     private final DHPrivateKey mPrivateKey;
     private final DHPublicKey mPublicKey;
@@ -34,21 +33,10 @@ public class BlufiDH {
     public BlufiDH(BigInteger p, BigInteger g, int length) {
         mP = p;
         mG = g;
-        mLength = length;
         Key[] keys = generateKeys(p, g, length);
         assert keys != null;
         mPrivateKey = (DHPrivateKey) keys[0];
         mPublicKey = (DHPublicKey) keys[1];
-    }
-
-    public BlufiDH(int length) {
-        mLength = length;
-        Key[] keys = generateKeys(length);
-        assert keys != null;
-        mPrivateKey = (DHPrivateKey) keys[0];
-        mPublicKey = (DHPublicKey) keys[1];
-        mP = mPublicKey.getParams().getP();
-        mG = mPublicKey.getParams().getG();
     }
 
     public BigInteger getP() {
@@ -57,10 +45,6 @@ public class BlufiDH {
 
     public BigInteger getG() {
         return mG;
-    }
-
-    public int getLength() {
-        return mLength;
     }
 
     public DHPrivateKey getPrivateKey() {
@@ -75,6 +59,40 @@ public class BlufiDH {
         return mSecretKey;
     }
 
+
+    /*public void generateSecretKey(BigInteger y) {
+        try {
+            DHPublicKeySpec pbks = new DHPublicKeySpec(y, mP, mG);
+            KeyFactory keyFact = KeyFactory.getInstance("DH");
+            PublicKey publicKey = keyFact.generatePublic(pbks);
+
+            // Prepare to generate the secret key with the private key and public key of the other party
+            KeyAgreement ka = KeyAgreement.getInstance("DH");
+            ka.init(mPrivateKey);
+            ka.doPhase(publicKey, true);
+
+            // Generate the secret key
+            byte[] tempSecret = ka.generateSecret();
+            int offset = 0;
+            for (byte b : tempSecret) {
+                if (b == 0) {
+                    offset++;
+                } else {
+                    break;
+                }
+            }
+            byte[] secretKey;
+            if (offset == 0) {
+                secretKey = tempSecret;
+            } else {
+                secretKey = new byte[tempSecret.length - offset];
+                System.arraycopy(tempSecret, offset, secretKey, 0, tempSecret.length - offset);
+            }
+            mSecretKey = secretKey;
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException e) {
+            Log.w(TAG, e);
+        }
+    } */
     public void generateSecretKey(BigInteger y) {
         try {
             Log.d(TAG, "Starting key generation - Input public key bit length: " + y.bitLength());
@@ -119,6 +137,7 @@ public class BlufiDH {
         }
     }
 
+
     private static Key[] generateKeys(BigInteger p, BigInteger g, int length) {
         try {
             // Use the values to generate a key pair
@@ -136,26 +155,6 @@ public class BlufiDH {
         } catch (NoSuchAlgorithmException
                 | InvalidAlgorithmParameterException
                 | ClassCastException e) {
-            Log.w(TAG, e);
-
-            return null;
-        }
-    }
-
-    private static Key[] generateKeys(int length) {
-        try {
-            KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DH");
-            keyGen.initialize(length);
-            KeyPair keypair = keyGen.generateKeyPair();
-
-            // Get the generated public and private keys
-            Key[] result = new Key[2];
-            result[0] = keypair.getPrivate();
-            result[1] = keypair.getPublic();
-
-            return result;
-        } catch (NoSuchAlgorithmException
-                 | ClassCastException e) {
             Log.w(TAG, e);
 
             return null;

@@ -530,6 +530,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         saveCurrentConfig()
+        // 进入扫描前断开残留的 GATT 连接：设备被连接时停止广播，会扫不到
+        RadarBleManager.getInstance(this).disconnect()
         scanLauncher.launch(Intent(this, ScanActivity::class.java))
     }
 
@@ -619,6 +621,8 @@ class MainActivity : AppCompatActivity() {
         qrOriginalCode = code
         qrMatchCode = code
         appendStatusLine("QR code: $code, matching device...")
+        // 匹配前断开残留的 GATT 连接，让设备恢复广播
+        RadarBleManager.getInstance(this).disconnect()
         startQrStage1()
         qrHandler.postDelayed(qrStage1Runnable, QR_MATCH_STAGE1_TIMEOUT)
         qrHandler.postDelayed(qrTimeoutRunnable, QR_MATCH_TOTAL_TIMEOUT)

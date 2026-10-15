@@ -1,7 +1,5 @@
 package com.espressif.espblufi.security;
 
-import android.util.Log;
-
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -14,8 +12,6 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class BlufiAES {
-    private static final String TAG = "BlufiAES";
-
     private final byte[] mKey;
     private final byte[] mIV;
     private final String mTransformation;
@@ -45,7 +41,7 @@ public class BlufiAES {
 
             return cipher;
         } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | InvalidAlgorithmParameterException e) {
-            Log.e(TAG, "createEncryptCipher: ", e);
+            e.printStackTrace();
         }
 
         return null;
@@ -66,7 +62,7 @@ public class BlufiAES {
             return cipher;
         } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | InvalidAlgorithmParameterException
                 e) {
-            Log.e(TAG, "createDecryptCipher: ", e);
+            e.printStackTrace();
         }
 
         return null;
@@ -76,26 +72,18 @@ public class BlufiAES {
         try {
             return mEncryptCipher.doFinal(content);
         } catch (BadPaddingException | IllegalBlockSizeException e) {
-            Log.e(TAG, "encrypt: ", e);
+            e.printStackTrace();
         }
         return null;
-    }
-
-    public byte[] encryptUpdate(byte[] content) {
-        return mEncryptCipher.update(content);
     }
 
     public byte[] decrypt(byte[] content) {
         try {
             return mDecryptCipher.doFinal(content);
         } catch (BadPaddingException | IllegalBlockSizeException e) {
-            Log.e(TAG, "decrypt: ", e);
+            e.printStackTrace();
         }
 
         return null;
-    }
-
-    public byte[] decryptUpdate(byte[] content) {
-        return mDecryptCipher.update(content);
     }
 }
