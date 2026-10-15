@@ -82,19 +82,32 @@
                 android:padding="@dimen/spacing_medium"
                 android:background="@drawable/bg_input_border">
 
-                <!-- Device ID -->
+                <!-- Device ID：按内容宽度，靠左 -->
                 <TextView
                     android:id="@+id/tv_device_id"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/hint_scan_device"
                     android:textSize="@dimen/text_body"
                     android:textColor="@color/text_secondary"
+                    android:gravity="start"
                     android:maxLines="1"
                     android:ellipsize="end"/>
 
-                <!-- RSSI -->
+                <!-- QR / UID（MAC）：占中间剩余空间，保证 MAC 完整显示 -->
+                <TextView
+                    android:id="@+id/tv_device_uid"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/spacing_small"
+                    android:textSize="@dimen/text_caption"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <!-- RSSI：按内容宽度，靠右与边框内侧对齐 -->
                 <TextView
                     android:id="@+id/tv_device_rssi"
                     android:layout_width="wrap_content"
@@ -102,7 +115,8 @@
                     android:layout_marginStart="@dimen/spacing_small"
                     android:textSize="@dimen/text_caption"
                     android:textColor="@color/text_secondary"
-                    android:gravity="end"/>
+                    android:gravity="end"
+                    android:maxLines="1"/>
             </LinearLayout>
         </LinearLayout>
 

@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
     private var isServerHistoryExpanded = false
     private var isWifiHistoryExpanded = false
     private lateinit var tvDeviceId: TextView
+    private lateinit var tvDeviceUid: TextView
     private lateinit var tvDeviceRssi: TextView
     private lateinit var btnSearch: ImageButton
     private lateinit var btnQrScan: ImageButton
@@ -129,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var configScan: ConfigStorage
     private var lastScannedBleDevice: BleDevice? = null
     private var selectedDevice: DeviceInfo? = null
+    private var selectedQrCode: String? = null  // QR 匹配选中时记录原始 QR 码，用于 Device 栏显示
     private lateinit var tvStatusOutput: TextView
 
 
@@ -149,6 +151,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 Log.d(TAG, "Received DeviceInfo}")
+                selectedQrCode = null  // BLE 手动选择没有 QR 码
                 deviceInfo?.let { onDeviceSelected(it) }
             }
         } else {
@@ -161,15 +164,17 @@ class MainActivity : AppCompatActivity() {
         if (device == null) {
             tvDeviceId.text = getString(R.string.hint_scan_device)
             tvDeviceId.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            tvDeviceUid.text = ""
             tvDeviceRssi.text = ""
             updateActionButtonsState()
             return
         }
 
-        // 更新设备信息显示
+        // 更新设备信息显示：Ble_id | QR/uid | RSSI
         layoutDeviceInfo.visibility = View.VISIBLE
         tvDeviceId.text = device.deviceId
         tvDeviceId.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+        tvDeviceUid.text = selectedQrCode ?: device.macAddress
         tvDeviceRssi.text = device.rssi.toString() + "dBm"
         updateActionButtonsState()
     }
@@ -212,6 +217,7 @@ class MainActivity : AppCompatActivity() {
         tvRecentServer = findViewById(R.id.tv_recent_server)
         tvRecentWifi = findViewById(R.id.tv_recent_wifi)
         tvDeviceId = findViewById(R.id.tv_device_id)
+        tvDeviceUid = findViewById(R.id.tv_device_uid)
         tvDeviceRssi = findViewById(R.id.tv_device_rssi)  // 添加 RSSI TextView
         layoutDeviceInfo = findViewById(R.id.layout_device_info)
         btnSearch = findViewById(R.id.btn_ble_scan)
@@ -804,6 +810,7 @@ class MainActivity : AppCompatActivity() {
     private fun onQrMatchHit(device: DeviceInfo) {
         stopQrMatch()
         appendStatusLine("QR matched device: ${device.deviceId}")
+        selectedQrCode = qrOriginalCode
         onDeviceSelected(device)
         Toast.makeText(this, getString(R.string.qr_device_selected, device.deviceId), Toast.LENGTH_SHORT).show()
     }
