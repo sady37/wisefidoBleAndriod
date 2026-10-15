@@ -70,6 +70,9 @@ dependencies {
     // Gson 依赖
     implementation("com.google.code.gson:gson:2.10.1")  // 添加 Gson 依赖
 
+    // 二维码扫描
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
 
     // 测试依赖
     testImplementation(libs.junit)

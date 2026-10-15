@@ -18,6 +18,7 @@ package com.wisefido
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.bluetooth.le.ScanResult
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -26,13 +27,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputFilter
-import android.text.method.ScrollingMovementMethod
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -42,6 +44,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.common.BleDeviceManager
 import com.common.DeviceHistory
 import com.common.DeviceInfo
+import com.common.FilterType
 import com.common.Productor
 import com.common.ServerConfig
 import com.common.WifiConfig
@@ -51,6 +54,11 @@ import com.google.gson.Gson
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textview.MaterialTextView
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeCallback
+import com.journeyapps.barcodescanner.BarcodeResult
+import com.journeyapps.barcodescanner.DecoratedBarcodeView
+import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import com.sleepace.sdk.constant.StatusCode
 import com.sleepace.sdk.domain.BleDevice
 import java.text.SimpleDateFormat
@@ -63,6 +71,9 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val PERMISSION_REQUEST_CODE = 100
+        private const val CAMERA_PERMISSION_REQUEST_CODE = 300
+        private const val QR_MATCH_STAGE1_TIMEOUT = 3000L
+        private const val QR_MATCH_TOTAL_TIMEOUT = 10000L
         // 定义所需权限
         private val REQUIRED_PERMISSIONS =
             arrayOf(
@@ -78,6 +89,7 @@ class MainActivity : AppCompatActivity() {
     // region 属性定义
     private lateinit var etServerAddress: TextInputEditText
     private lateinit var etServerPort: TextInputEditText
+    private lateinit var switchTls: com.google.android.material.switchmaterial.SwitchMaterial
     private lateinit var etWifiSsid: TextInputEditText
     private lateinit var etWifiPassword: TextInputEditText
     private lateinit var btnPair: MaterialButton
@@ -90,10 +102,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiHistoryAdapter: WifiHistoryAdapter
     private var isServerHistoryExpanded = false
     private var isWifiHistoryExpanded = false
-    private lateinit var tvDeviceName: TextView
     private lateinit var tvDeviceId: TextView
     private lateinit var tvDeviceRssi: TextView
     private lateinit var btnSearch: ImageButton
+    private lateinit var btnQrScan: ImageButton
     private lateinit var layoutDeviceInfo: View
     private lateinit var configScan: ConfigStorage
     private var lastScannedBleDevice: BleDevice? = null
@@ -118,8 +130,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 Log.d(TAG, "Received DeviceInfo}")
-                selectedDevice = deviceInfo
-                updateDeviceDisplay(deviceInfo)
+                deviceInfo?.let { onDeviceSelected(it) }
             }
         } else {
             Log.d(TAG, "Scan result received with result code: ${result.resultCode}")
@@ -129,19 +140,18 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     private fun updateDeviceDisplay(device: DeviceInfo?) {
         if (device == null) {
-            tvDeviceName.text = "No Device"
-            tvDeviceId.text = "No ID"
+            tvDeviceId.text = "No Device"
             tvDeviceRssi.text = "--"
+            updateActionButtonsState()
             return
         }
 
         // 更新设备信息显示
         layoutDeviceInfo.visibility = View.VISIBLE
-        tvDeviceName.text = device.deviceName
         tvDeviceId.text = device.deviceId
         tvDeviceRssi.text = device.rssi.toString() + "dBm"
+        updateActionButtonsState()
     }
-
     private val configLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -173,19 +183,19 @@ class MainActivity : AppCompatActivity() {
     private fun initViews() {
         etServerAddress = findViewById(R.id.et_server_address)
         etServerPort = findViewById(R.id.et_server_port)
+        switchTls = findViewById(R.id.switch_tls)
         etWifiSsid = findViewById(R.id.et_wifi_ssid)
         etWifiPassword = findViewById(R.id.et_wifi_password)
         btnPair = findViewById(R.id.btn_pair)
         btnQuery = findViewById(R.id.btn_query)
         tvRecentServer = findViewById(R.id.tv_recent_server)
         tvRecentWifi = findViewById(R.id.tv_recent_wifi)
-        tvDeviceName = findViewById(R.id.tv_device_name)
         tvDeviceId = findViewById(R.id.tv_device_id)
         tvDeviceRssi = findViewById(R.id.tv_device_rssi)  // 添加 RSSI TextView
         layoutDeviceInfo = findViewById(R.id.layout_device_info)
-        btnSearch = findViewById(R.id.btn_search)
+        btnSearch = findViewById(R.id.btn_ble_scan)
+        btnQrScan = findViewById(R.id.btn_qr_scan)
         tvStatusOutput = findViewById(R.id.tv_status_output)
-        tvStatusOutput.movementMethod = ScrollingMovementMethod.getInstance()
         rvServerHistory = findViewById(R.id.rv_server_history)
         rvWifiHistory = findViewById(R.id.rv_wifi_history)
 
@@ -235,11 +245,34 @@ class MainActivity : AppCompatActivity() {
         etWifiSsid.filters = arrayOf(ssidLengthFilter) // 只限制长度，允许空格
         etWifiPassword.filters = arrayOf() // 不应用任何过滤器，允许所有字符包括空格
 
+        // TLS/明文切换：仅当端口为空或仍是另一模式的默认端口时自动填充
+        switchTls.setOnCheckedChangeListener { _, isChecked ->
+            val current = etServerPort.text.toString().trim()
+                .replace("tcp", "", ignoreCase = true)
+            if (isChecked) {
+                if (current.isEmpty() || current == "29010") etServerPort.setText("29015")
+            } else {
+                if (current.isEmpty() || current == "29015") etServerPort.setText("29010")
+            }
+        }
+
         // 初始隐藏设备信息区域
         //layoutDeviceInfo.visibility = View.GONE
         updateDeviceDisplay(null)  // 显示空状态而不是隐藏
+        updateActionButtonsState()
         btnSearch.setOnClickListener {
             startScanActivity()
+        }
+
+        // 扫码入口：首页小窗扫码并自动匹配选中设备
+        btnQrScan.setOnClickListener {
+            if (qrMatching) {
+                cancelQrMatch()
+            } else if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                showQrScanDialog()
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST_CODE)
+            }
         }
 
         // 配对按钮点击事件
@@ -500,6 +533,188 @@ class MainActivity : AppCompatActivity() {
         scanLauncher.launch(Intent(this, ScanActivity::class.java))
     }
 
+    /**
+     * 选中设备的统一入口（ScanActivity 返回 / QR 匹配命中共用）
+     */
+    private fun onDeviceSelected(device: DeviceInfo) {
+        selectedDevice = device
+        updateDeviceDisplay(device)
+    }
+
+    /**
+     * 根据是否有选中设备，统一更新 Query / Pair 按钮可用状态
+     */
+    private fun updateActionButtonsState() {
+        val hasDevice = selectedDevice != null
+        btnQuery.isEnabled = hasDevice
+        btnPair.isEnabled = hasDevice
+    }
+
+    // region 首页扫码匹配
+    private var qrDialog: Dialog? = null
+    private var qrBarcodeView: DecoratedBarcodeView? = null
+    private var qrProgressDialog: androidx.appcompat.app.AlertDialog? = null
+    private var qrMatching = false
+    private var qrMatchCode = ""
+    private var qrOriginalCode = ""
+    private val qrHandler = Handler(Looper.getMainLooper())
+    private val qrStage1Runnable = Runnable { startQrStage2() }
+    private val qrTimeoutRunnable = Runnable { onQrMatchTimeout() }
+
+    /**
+     * 弹出靠上的小扫码窗口（高约屏幕 40%）
+     */
+    private fun showQrScanDialog() {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_qr_scan, null)
+        val container = view.findViewById<View>(R.id.barcode_container)
+        // 高约屏幕 40%
+        container.layoutParams.height = (resources.displayMetrics.heightPixels * 0.4).toInt()
+
+        val barcodeView = DecoratedBarcodeView(this)
+        barcodeView.barcodeView.decoderFactory = DefaultDecoderFactory(listOf(BarcodeFormat.QR_CODE))
+        barcodeView.setStatusText(getString(R.string.scan_qr_title))
+        (container as? android.widget.FrameLayout)?.addView(barcodeView)
+
+        val dialog = Dialog(this)
+        dialog.setContentView(view)
+        dialog.window?.let { w ->
+            w.setGravity(Gravity.TOP)
+            w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        view.findViewById<View>(R.id.btn_qr_close).setOnClickListener { dialog.dismiss() }
+        dialog.setOnDismissListener {
+            barcodeView.pause()
+            qrBarcodeView = null
+            qrDialog = null
+        }
+
+        barcodeView.decodeSingle(object : BarcodeCallback {
+            override fun barcodeResult(result: BarcodeResult?) {
+                val text = result?.text?.trim()
+                if (!text.isNullOrEmpty()) {
+                    dialog.dismiss()
+                    startQrMatch(text)
+                }
+            }
+        })
+
+        qrBarcodeView = barcodeView
+        qrDialog = dialog
+        dialog.setOnShowListener { barcodeView.resume() }
+        dialog.show()
+        barcodeView.resume()
+        appendStatusLine(getString(R.string.scan_qr_title))
+    }
+
+    /**
+     * 扫码成功后开始匹配设备：BM 开头走 Sleepace，否则走 ESP 雷达
+     */
+    @SuppressLint("MissingPermission")
+    private fun startQrMatch(code: String) {
+        if (code.isEmpty()) return
+        stopQrMatch()
+        qrMatching = true
+        qrOriginalCode = code
+        qrMatchCode = code
+        appendStatusLine("QR code: $code, matching device...")
+        startQrStage1()
+        qrHandler.postDelayed(qrStage1Runnable, QR_MATCH_STAGE1_TIMEOUT)
+        qrHandler.postDelayed(qrTimeoutRunnable, QR_MATCH_TOTAL_TIMEOUT)
+        qrProgressDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.scan_qr_title))
+            .setMessage(getString(R.string.qr_matching_device, code))
+            .setNegativeButton(android.R.string.cancel) { _, _ -> cancelQrMatch() }
+            .setOnCancelListener { cancelQrMatch() }
+            .show()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startQrStage1() {
+        if (qrMatchCode.startsWith("BM", ignoreCase = true)) {
+            // Sleepace 设备
+            SleepaceBleManager.getInstance(this).startScan { result ->
+                runOnUiThread {
+                    if (!qrMatching || result?.status != StatusCode.SUCCESS) return@runOnUiThread
+                    (result.result as? DeviceInfo)?.let { dev ->
+                        if (qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
+                    }
+                }
+            }
+        } else {
+            // ESP 雷达设备：空前缀扫全部，回调里逐个比对
+            val radar = RadarBleManager.getInstance(this)
+            radar.setScanCallback { dev ->
+                runOnUiThread {
+                    if (qrMatching && qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
+                }
+            }
+            radar.startScan("", FilterType.DEVICE_NAME)
+        }
+    }
+
+    /**
+     * 3 秒未命中：取 code 最后 6 位拼 "TSBLU" 前缀，继续用 ESP 匹配
+     */
+    @SuppressLint("MissingPermission")
+    private fun startQrStage2() {
+        if (!qrMatching) return
+        val fallback = "TSBLU" + qrOriginalCode.takeLast(6).uppercase()
+        appendStatusLine("Trying fallback device id: $fallback")
+        qrMatchCode = fallback
+        stopQrScans()
+        val radar = RadarBleManager.getInstance(this)
+        radar.setScanCallback { dev ->
+            runOnUiThread {
+                if (qrMatching && qrDeviceMatches(dev, qrMatchCode)) onQrMatchHit(dev)
+            }
+        }
+        radar.startScan("", FilterType.DEVICE_NAME)
+    }
+
+    private fun qrDeviceMatches(dev: DeviceInfo, code: String): Boolean {
+        val c = code.trim()
+        fun String?.eqCode() = this?.equals(c, ignoreCase = true) == true
+        fun String.stripColon() = replace(":", "")
+        return dev.deviceId.eqCode() || dev.deviceName.eqCode() || dev.macAddress.eqCode() ||
+                dev.macAddress.stripColon().equals(c.stripColon(), ignoreCase = true)
+    }
+
+    private fun onQrMatchHit(device: DeviceInfo) {
+        stopQrMatch()
+        appendStatusLine("QR matched device: ${device.deviceId}")
+        onDeviceSelected(device)
+        Toast.makeText(this, getString(R.string.qr_device_selected, device.deviceId), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onQrMatchTimeout() {
+        if (!qrMatching) return
+        val code = qrOriginalCode
+        stopQrMatch()
+        Toast.makeText(this, getString(R.string.device_not_found, code), Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopQrScans() {
+        RadarBleManager.getInstance(this).stopScan()
+        SleepaceBleManager.getInstance(this).stopScan()
+    }
+
+    private fun stopQrMatch() {
+        qrMatching = false
+        qrHandler.removeCallbacks(qrStage1Runnable)
+        qrHandler.removeCallbacks(qrTimeoutRunnable)
+        stopQrScans()
+        qrProgressDialog?.dismiss()
+        qrProgressDialog = null
+    }
+
+    private fun cancelQrMatch() {
+        stopQrMatch()
+        appendStatusLine("QR match canceled")
+    }
+    // endregion
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -513,6 +728,13 @@ class MainActivity : AppCompatActivity() {
                     startScanActivity()
                 } else {
                     showMessage(getString(R.string.permissions_required))
+                }
+            }
+            CAMERA_PERMISSION_REQUEST_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    showQrScanDialog()
+                } else {
+                    Toast.makeText(this, getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -640,6 +862,7 @@ class MainActivity : AppCompatActivity() {
                 bleDevice,
                 etServerAddress.text.toString(),
                 etServerPort.text.toString().replace("tcp", "").replace("TCP", "").toInt(),
+                switchTls.isChecked,
                 etWifiSsid.text.toString().trim().toByteArray(),
                 etWifiPassword.text.toString()
             ) { callbackData ->

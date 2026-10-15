@@ -1,306 +1,351 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="@dimen/spacing_medium">
+    android:fillViewport="true">
 
-    <!-- Title -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/title_ble_wifi"
-        android:textSize="@dimen/text_headline"
-        android:textColor="@color/text_primary"
-        android:gravity="center"
-        android:layout_marginBottom="@dimen/spacing_large"/>
-
-    <!-- Step 1、Search按钮与操作按钮在同一行 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_medium">
 
-        <!-- Step 1 标题 -->
+        <!-- Title -->
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/step_1"
-            android:textSize="@dimen/text_title"
-            android:textColor="@color/text_primary"/>
+            android:text="@string/title_ble_wifi"
+            android:textSize="@dimen/text_headline"
+            android:textColor="@color/text_primary"
+            android:gravity="center"
+            android:layout_marginBottom="@dimen/spacing_large"/>
 
-        <!-- 4dp 间隔 -->
-        <Space
-            android:layout_width="20dp"
-            android:layout_height="1dp"/>
+        <!-- ===================== STEP 1 ===================== -->
+        <!-- STEP 1 标题与三个等宽按钮同行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <!-- Pair 按钮 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_pair"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:text="@string/btn_pair"
-            android:minWidth="90dp"
-            app:cornerRadius="20dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/step_1"
+                android:textSize="@dimen/text_title"
+                android:textColor="@color/text_primary"/>
 
-        <!-- 间隔 -->
-        <Space
-            android:layout_width="20dp"
-            android:layout_height="20dp"/>
+            <Space
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="1dp"/>
 
-        <!-- Query 按钮 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_query"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:text="@string/btn_status"
-            android:minWidth="90dp"
-            app:cornerRadius="20dp"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_query"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="@string/btn_status"
+                android:textSize="12sp"
+                android:minWidth="72dp"
+                android:minHeight="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                app:backgroundTint="@color/btn_query_state"
+                app:cornerRadius="18dp"/>
 
-        <!-- 间隔 -->
-        <Space
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="1dp"/>
+            <ImageButton
+                android:id="@+id/btn_qr_scan"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="16dp"
+                android:background="@android:color/transparent"
+                android:scaleType="fitCenter"
+                android:padding="2dp"
+                android:src="@drawable/ic_qr_code"
+                android:contentDescription="@string/btn_qr_scan"/>
 
-        <!-- Search button -->
-        <ImageButton
-            android:id="@+id/btn_search"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_search"
-            app:tint="@color/text_primary"
-            android:contentDescription="Search device"/>
-    </LinearLayout>
+            <ImageButton
+                android:id="@+id/btn_ble_scan"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="16dp"
+                android:background="@android:color/transparent"
+                android:scaleType="fitCenter"
+                android:padding="2dp"
+                android:src="@drawable/ic_bluetooth_search"
+                android:contentDescription="@string/btn_ble_scan"/>
+        </LinearLayout>
 
-    <!-- Device info display -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="@dimen/spacing_small"
-        android:layout_marginBottom="@dimen/spacing_medium">
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/hint_select_device"
+            android:textSize="@dimen/text_caption"
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="@dimen/spacing_tiny"/>
 
         <!-- Device info display -->
         <LinearLayout
-            android:id="@+id/layout_device_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:padding="@dimen/spacing_medium"
-            android:background="@drawable/bg_input_border">
+            android:layout_marginTop="@dimen/spacing_small"
+            android:layout_marginBottom="@dimen/spacing_medium">
 
-            <!-- Device ID -->
-            <TextView
-                android:id="@+id/tv_device_id"
-                android:layout_width="150dp"
+            <LinearLayout
+                android:id="@+id/layout_device_info"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="@dimen/text_body"
-                android:textColor="@color/text_primary"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="@dimen/spacing_medium"
+                android:background="@drawable/bg_input_border">
 
-            <!-- Device Name -->
-            <TextView
-                android:id="@+id/tv_device_name"
+                <!-- Device ID -->
+                <TextView
+                    android:id="@+id/tv_device_id"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textSize="@dimen/text_body"
+                    android:textColor="@color/text_primary"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <!-- RSSI -->
+                <TextView
+                    android:id="@+id/tv_device_rssi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/spacing_small"
+                    android:textSize="@dimen/text_caption"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="end"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ===================== STEP 2 ===================== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/step_2"
+            android:textSize="@dimen/text_title"
+            android:textColor="@color/text_primary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/hint_server_info"
+            android:textSize="@dimen/text_caption"
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="@dimen/spacing_tiny"/>
+
+        <!-- 服务器地址和端口并排显示，宽度比例 7:3 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/spacing_small">
+
+            <!-- 服务器地址 -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.App.TextInputLayout"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="@dimen/spacing_small"
-                android:textSize="@dimen/text_body"
-                android:textColor="@color/text_primary"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:layout_weight="7">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_server_address"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:text="app.wisefido.com"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- RSSI -->
-            <TextView
-                android:id="@+id/tv_device_rssi"
+            <!-- 服务器端口 -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.App.TextInputLayout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="3"
+                android:layout_marginStart="@dimen/spacing_small">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_server_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <!-- Recent Servers 历史入口 + TLS 开关，同一行，相距 10dp -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="@dimen/spacing_tiny">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_recent_server"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/spacing_small"
-                android:textSize="@dimen/text_caption"
+                android:paddingHorizontal="@dimen/spacing_small"
+                android:paddingVertical="@dimen/spacing_tiny"
+                android:gravity="center_vertical"
+                android:text="@string/recent_servers"
                 android:textColor="@color/text_secondary"
-                android:gravity="end"/>
+                android:textSize="@dimen/text_caption"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground" />
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp"/>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_tls"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/switch_tls_encryption"
+                android:textSize="@dimen/text_caption"
+                android:textColor="@color/text_primary"
+                app:showText="false" />
         </LinearLayout>
-    </LinearLayout>
 
-    <!-- Step 2: 服务器配置 -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:text="@string/step_2"
-        android:textSize="@dimen/text_title"
-        android:textColor="@color/text_primary" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/hint_server_info"
-        android:textSize="@dimen/text_caption"
-        android:textColor="@color/text_secondary"
-        android:layout_marginTop="@dimen/spacing_tiny"/>
-
-    <!-- 服务器地址和端口并排显示，宽度比例 7:3 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="@dimen/spacing_small">
-
-        <!-- 服务器地址 -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.App.TextInputLayout"
-            android:layout_width="0dp"
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_server_history"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="7">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_server_address"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/input_height"
-                android:hint="@string/hint_server_address"
-                android:text="app.wisefido.com"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
+            android:layout_marginTop="@dimen/spacing_tiny"
+            android:nestedScrollingEnabled="false"
+            android:visibility="gone" />
 
-        <!-- 服务器端口 -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.App.TextInputLayout"
-            android:layout_width="0dp"
+        <!-- ===================== STEP 3 ===================== -->
+        <!-- STEP 3 标题与 Pair 按钮同行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="3"
-            android:layout_marginStart="@dimen/spacing_small">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_server_port"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/input_height"
-                android:hint="@string/hint_server_port"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/hint_select_wlan"
-        android:textSize="@dimen/text_caption"
-        android:textColor="@color/text_secondary"
-        android:layout_marginTop="@dimen/spacing_tiny"/>
-
-    <!-- WiFi名称和密码并排显示，宽度比例 5:5 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="@dimen/spacing_small">
-
-        <!-- WiFi名称 -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.App.TextInputLayout"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="5">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_wifi_ssid"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/input_height"
-                android:hint="@string/hint_wifi_name"
-                android:inputType="text"/>
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <!-- WiFi密码 -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.App.TextInputLayout"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="5"
-            android:layout_marginStart="@dimen/spacing_small"
-            app:endIconMode="password_toggle">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_wifi_password"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/input_height"
-                android:hint="@string/hint_wifi_password"
-                android:inputType="textPassword"/>
-        </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/layout_history_headers"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="@dimen/spacing_small">
-
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/tv_recent_server"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingHorizontal="@dimen/spacing_small"
-            android:paddingVertical="@dimen/spacing_tiny"
+            android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:text="@string/recent_servers"
-            android:textColor="@color/text_secondary"
-            android:textSize="@dimen/text_caption"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground" />
+            android:layout_marginTop="@dimen/spacing_medium">
 
-        <View
-            android:layout_width="1dp"
-            android:layout_height="24dp"
-            android:background="@color/text_secondary"
-            android:alpha="0.2" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/step_3"
+                android:textSize="@dimen/text_title"
+                android:textColor="@color/text_primary" />
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/tv_recent_wifi"
-            android:layout_width="0dp"
+            <Space
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="1dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pair"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="@string/btn_pair"
+                android:textSize="12sp"
+                android:minWidth="72dp"
+                android:minHeight="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                app:backgroundTint="@color/btn_primary_state"
+                app:cornerRadius="18dp"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingHorizontal="@dimen/spacing_small"
-            android:paddingVertical="@dimen/spacing_tiny"
-            android:gravity="center_vertical"
-            android:text="@string/recent_networks"
-            android:textColor="@color/text_secondary"
+            android:text="@string/hint_select_wlan"
             android:textSize="@dimen/text_caption"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground" />
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="@dimen/spacing_tiny"/>
+
+        <!-- WiFi名称和密码并排显示，宽度比例 5:5 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/spacing_small">
+
+            <!-- WiFi名称 -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.App.TextInputLayout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="5">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_wifi_ssid"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:hint="@string/hint_wifi_name"
+                    android:inputType="text"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- WiFi密码 -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.App.TextInputLayout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="5"
+                android:layout_marginStart="@dimen/spacing_small"
+                app:endIconMode="password_toggle">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_wifi_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:hint="@string/hint_wifi_password"
+                    android:inputType="textPassword"/>
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layout_history_headers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="@dimen/spacing_small">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_recent_wifi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="@dimen/spacing_small"
+                android:paddingVertical="@dimen/spacing_tiny"
+                android:gravity="center_vertical"
+                android:text="@string/recent_networks"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_caption"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_wifi_history"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_tiny"
+            android:nestedScrollingEnabled="false"
+            android:visibility="gone" />
+
+        <!-- Status Display：内容不足一屏时 weight=1 自动延伸到底部，超出时随主屏滚动 -->
+        <TextView
+            android:id="@+id/tv_status_output"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="@dimen/spacing_medium"
+            android:background="@drawable/bg_input_border"
+            android:textSize="14sp"
+            android:typeface="monospace"
+            android:padding="8dp"
+            android:gravity="top|start"/>
     </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_server_history"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_tiny"
-        android:nestedScrollingEnabled="false"
-        android:visibility="gone" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_wifi_history"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_tiny"
-        android:nestedScrollingEnabled="false"
-        android:visibility="gone" />
-
-    <!-- Status Display -->
-    <TextView
-        android:id="@+id/tv_status_output"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="@dimen/spacing_medium"
-        android:background="@drawable/bg_input_border"
-        android:textSize="14sp"
-        android:typeface="monospace"
-        android:padding="8dp"
-        android:gravity="top|start"/>
-</LinearLayout>
+</ScrollView>

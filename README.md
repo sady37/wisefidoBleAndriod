@@ -50,7 +50,6 @@ WiseFido BleconfigforAndriod
 
 20251113 v1.03  Query esp/speace
 
-
 handleQueryButton: 会根据 productorName 分流：
 Radar (ProductorRadarQL) → queryRadarStatus: 执行完整的状态查询；
 ESP (ProductorEspBle) → queryEspStatus: 只触发 scanNearbyWiFiForDevice，即仅扫描附近 Wi-Fi；

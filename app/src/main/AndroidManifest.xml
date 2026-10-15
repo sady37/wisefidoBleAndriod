@@ -24,6 +24,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- 二维码扫描相机权限 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!-- BLE特性声明 -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"

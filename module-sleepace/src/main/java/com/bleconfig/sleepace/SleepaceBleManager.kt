@@ -115,6 +115,7 @@ class SleepaceBleManager private constructor(context: Context) {
         device: BleDevice?,
         serverIP: String,
         serverPort: Int,
+        portEncrypt: Boolean,
         ssidRaw: ByteArray,
         password: String,
         callback: IResultCallback<Any>
@@ -151,8 +152,12 @@ class SleepaceBleManager private constructor(context: Context) {
                 device.address,
                 serverIP,
                 serverPort,
+                portEncrypt,
                 ssidRaw,
-                password
+                password,
+                null,
+                null,
+                null
             ) { result ->
                 isConfiguring = false
                 val success = result.status == StatusCode.SUCCESS
