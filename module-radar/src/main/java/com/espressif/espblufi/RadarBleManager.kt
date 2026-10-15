@@ -294,6 +294,7 @@ class RadarBleManager private constructor(private val context: Context) {
             override fun onReceiveCustomData(client: BlufiClient, status: Int, data: ByteArray) {
                 if (currentConfig !== context || context.stage == ConfigStage.COMPLETE) return
                 val responseStr = runCatching { String(data) }.getOrNull()
+                Log.i(TAG, "config stage=${context.stage} phase=${context.serverPhase} raw=${responseStr?.take(120)}")
                 val parsed = RadarCommand.parseResponse(responseStr)
                 when (context.stage) {
                     ConfigStage.PREHEAT -> handlePreheatResponse(context, parsed, client)
@@ -423,7 +424,18 @@ class RadarBleManager private constructor(private val context: Context) {
                 client.postCustomData(command.toByteArray())
             }
             ServerPhase.EXTRA3 -> {
-                startStepTimeout(context, SERVER_STEP_TIMEOUT, "Server auxiliary command timed out")
+                // 3:0 在新固件上无应答：超时不算失败，继续发送重启命令
+                context.stepTimeout?.let { mainHandler.removeCallbacks(it) }
+                val auxTimeout = Runnable {
+                    if (currentConfig === context && context.serverPhase == ServerPhase.EXTRA3) {
+                        Log.w(TAG, "Server auxiliary command (3:0) no reply, continue to restart")
+                        context.serverPhase = ServerPhase.RESTART
+                        scheduleRestartFinalize(context)
+                        sendNextServerCommand(context, client)
+                    }
+                }
+                context.stepTimeout = auxTimeout
+                mainHandler.postDelayed(auxTimeout, SERVER_STEP_TIMEOUT)
                 Log.d(TAG, "Sending server auxiliary command: 3:0")
                 client.postCustomData("3:0".toByteArray())
             }
