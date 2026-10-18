@@ -175,6 +175,39 @@ class SleepaceBleManager private constructor(context: Context) {
     }
 
     /**
+     * 查询设备当前的 WiFi 设置（SSID / 密码 / DHCP 或静态 IP），SDK 自行连接设备。
+     * 厂家 SDK 没有服务器地址查询，result 为 WifiSetting
+     */
+    fun queryWifiConfig(device: BleDevice?, callback: IResultCallback<Any>) {
+        if (isConfiguring) {
+            Log.d(TAG, "Config in progress, ignoring query")
+            return
+        }
+        val type = device?.deviceType?.type
+        if (type == null) {
+            handleError(callback, IllegalArgumentException("Invalid device type"))
+            return
+        }
+        try {
+            wifiConfigHelper.bleWiFiConfigGet(type, device.address) { result ->
+                Log.d(TAG, "Query WiFi config completed - Status: ${result.status}")
+                callback.onResultCallback(result)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Query WiFi config error", e)
+            handleError(callback, e)
+        }
+    }
+
+    /**
+     * 断开 SDK 持有的 GATT 连接（设备被连接时停止广播，扫描前需断开）
+     */
+    fun disconnect() {
+        runCatching { if (wifiConfigHelper.isConnected) wifiConfigHelper.disconnect() }
+            .onFailure { Log.e(TAG, "Disconnect failed: ${it.message}") }
+    }
+
+    /**
      * 释放资源
      */
     fun release() {

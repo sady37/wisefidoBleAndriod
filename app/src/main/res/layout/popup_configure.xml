@@ -1,31 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="240dp"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/white">
+
+<LinearLayout
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@android:color/white"
     android:padding="16dp">
 
-    <!-- Radar Device Name 设置 -->
+    <!-- 扫描过滤前缀 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="48dp"
+        android:minHeight="42dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="110dp"
             android:layout_height="wrap_content"
-            android:minWidth="120dp"
-            android:text="Radar Name:"
+            android:text="Device Prefix"
             android:textColor="@color/text_secondary"
-            android:textSize="16sp" />
+            android:textSize="14sp" />
 
         <EditText
             android:id="@+id/et_radar_name"
-            android:layout_width="150dp"
-            android:layout_height="48dp"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
             android:background="@drawable/bg_input_border"
             android:hint="TSBLU"
             android:singleLine="true"
@@ -36,48 +40,194 @@
             android:inputType="text" />
     </LinearLayout>
 
-    <!-- 过滤类型选择 -->
+    <!-- 过滤类型：三个独立按钮，单选，按钮间留间距 -->
     <TextView
         android:layout_width="wrap_content"
-        android:layout_height="48dp"
-        android:layout_marginTop="16dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="8dp"
         android:gravity="center_vertical"
-        android:text="Filter Type:"
+        android:text="FilterType:"
         android:textSize="16sp"
         android:textStyle="bold" />
 
-    <RadioGroup
-        android:id="@+id/radio_filter_type"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="horizontal">
 
-        <RadioButton
-            android:id="@+id/radio_device_name"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:checked="true"
-            android:text="Device Name" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_filter_device_name"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="Device Prefix"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_filter_mac"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:layout_marginStart="12dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="MAC Addr"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_filter_uuid"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:layout_marginStart="12dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="UUID"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+    </LinearLayout>
 
-        <RadioButton
-            android:id="@+id/radio_mac"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="MAC Address" />
+    <!-- 默认设备服务器：Server / Port / TLS=Y/N -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <RadioButton
-            android:id="@+id/radio_uuid"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="UUID" />
-    </RadioGroup>
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Default Device Server:"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_reset_servers"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Reset"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <!-- 在线模板规则（条数不限），由代码按规则动态生成：前缀可改，服务器跟随在线模板 -->
+    <LinearLayout
+        android:id="@+id/layout_server_rules"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <!-- 本地自定义规则（优先级最高）：前缀、服务器、端口、TLS 都可改 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:minHeight="42dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="Custom Prefix:"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_custom_prefix"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_input_border"
+            android:singleLine="true"
+            android:textSize="14sp"
+            android:paddingStart="@dimen/spacing_small"
+            android:paddingEnd="@dimen/spacing_small"
+            android:importantForAutofill="no"
+            android:inputType="text" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="42dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="Custom Server:"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_custom_server"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_input_border"
+            android:hint="app.wisefido.com"
+            android:singleLine="true"
+            android:textSize="14sp"
+            android:paddingStart="@dimen/spacing_small"
+            android:paddingEnd="@dimen/spacing_small"
+            android:importantForAutofill="no"
+            android:inputType="textUri" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="42dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="Port:"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/et_custom_port"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_input_border"
+            android:hint="29010"
+            android:singleLine="true"
+            android:textSize="14sp"
+            android:paddingStart="@dimen/spacing_small"
+            android:paddingEnd="@dimen/spacing_small"
+            android:importantForAutofill="no"
+            android:inputType="number" />
+
+        <CheckBox
+            android:id="@+id/cb_custom_tls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="TLS" />
+    </LinearLayout>
 
     <!-- 确认和取消按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="end"
+        android:gravity="center"
         android:layout_marginTop="16dp">
 
         <Button
@@ -93,6 +243,7 @@
             android:layout_height="48dp"
             android:text="Confirm"
             android:paddingHorizontal="16dp"
-            android:layout_marginStart="8dp" />
+            android:layout_marginStart="24dp" />
     </LinearLayout>
 </LinearLayout>
+</ScrollView>

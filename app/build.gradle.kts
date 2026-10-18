@@ -79,6 +79,8 @@ dependencies {
 
     // 测试依赖
     testImplementation(libs.junit)
+    // 单元测试用真实 org.json（android.jar 里的是桩实现）
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

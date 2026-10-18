@@ -11,6 +11,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.LinearLayout
+import android.content.res.ColorStateList
+import android.graphics.Color
+import androidx.core.content.ContextCompat
+import com.google.android.material.button.MaterialButton
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.RadioButton
@@ -47,9 +53,18 @@ import com.sleepace.sdk.constant.StatusCode
 
 
 
-class ConfigDialog(context: Context) : Dialog(context) {
-    private lateinit var etRadarName: EditText
-    private lateinit var radioFilterType: RadioGroup
+// 全屏显示，避免内容多时弹窗放不下
+class ConfigDialog(context: Context) : Dialog(context, android.R.style.Theme_DeviceDefault_Light_NoActionBar) {
+    private val etRadarName: EditText
+    private val filterButtons: Map<FilterType, MaterialButton>
+    private var selectedFilterType: FilterType = FilterType.DEVICE_NAME
+    private val rules = DeviceServerRules(context)
+    private val layoutServerRules: LinearLayout
+    private val prefixInputs = mutableMapOf<String, EditText>()  // 规则 name -> 前缀输入框
+    private val etCustomPrefix: EditText
+    private val etCustomServer: EditText
+    private val etCustomPort: EditText
+    private val cbCustomTls: CheckBox
 
     // 配置更改监听器
     private var onConfigChangedListener: ((String, FilterType) -> Unit)? = null
@@ -57,26 +72,42 @@ class ConfigDialog(context: Context) : Dialog(context) {
     init {
         // 设置对话框布局
         setContentView(R.layout.popup_configure)
+        window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
         // 绑定视图组件
         etRadarName = findViewById(R.id.et_radar_name)
-        radioFilterType = findViewById(R.id.radio_filter_type)
+        filterButtons = mapOf(
+            FilterType.DEVICE_NAME to findViewById(R.id.btn_filter_device_name),
+            FilterType.MAC to findViewById(R.id.btn_filter_mac),
+            FilterType.UUID to findViewById(R.id.btn_filter_uuid)
+        )
+        filterButtons.forEach { (type, button) -> button.setOnClickListener { setFilterType(type) } }
+        layoutServerRules = findViewById(R.id.layout_server_rules)
+        etCustomPrefix = findViewById(R.id.et_custom_prefix)
+        etCustomServer = findViewById(R.id.et_custom_server)
+        etCustomPort = findViewById(R.id.et_custom_port)
+        cbCustomTls = findViewById(R.id.cb_custom_tls)
+
+        fillServerRules(rules.currentRules(), rules.customRule())
+        // 恢复默认服务器规则（在线模板，无则内置）并清空自定义，确认后才清除本地修改
+        findViewById<Button>(R.id.btn_reset_servers).setOnClickListener { fillServerRules(rules.defaultRules(), null) }
 
         // 确认按钮点击事件
         findViewById<Button>(R.id.btn_confirm).setOnClickListener {
-            // 获取用户输入的雷达设备名称
-            val radarName = etRadarName.text.toString()
-
-            // 获取用户选择的过滤器类型
-            val filterType = when (radioFilterType.checkedRadioButtonId) {
-                R.id.radio_device_name -> FilterType.DEVICE_NAME
-                R.id.radio_mac -> FilterType.MAC
-                R.id.radio_uuid -> FilterType.UUID
-                else -> FilterType.DEVICE_NAME
+            // Server3 填了但端口不对时提示，避免静默丢弃
+            val customServer = etCustomServer.text.toString().trim()
+            val customPort = etCustomPort.text.toString().trim().toIntOrNull()
+            if (customServer.isNotEmpty() && !DeviceServerRules.isValidPort(customPort)) {
+                etCustomPort.error = "1-65535"
+                return@setOnClickListener
             }
 
+            // 保存默认设备服务器规则
+            prefixInputs.forEach { (name, input) -> rules.saveUserPrefix(name, input.text.toString()) }
+            rules.saveCustomRule(etCustomPrefix.text.toString(), customServer, customPort, cbCustomTls.isChecked)
+
             // 触发配置更改监听器
-            onConfigChangedListener?.invoke(radarName, filterType)
+            onConfigChangedListener?.invoke(etRadarName.text.toString(), selectedFilterType)
 
             // 关闭对话框
             dismiss()
@@ -87,6 +118,27 @@ class ConfigDialog(context: Context) : Dialog(context) {
             // 关闭对话框
             dismiss()
         }
+        setFilterType(selectedFilterType)
+    }
+
+    /** 每条规则两行：「<name> Prefix: [输入框]」+「Server: host:port TLS=Y/N」 */
+    private fun fillServerRules(list: List<DeviceServerRule>, custom: DeviceServerRule?) {
+        layoutServerRules.removeAllViews()
+        prefixInputs.clear()
+        val inflater = LayoutInflater.from(context)
+        for (rule in list) {
+            val row = inflater.inflate(R.layout.item_server_rule, layoutServerRules, false)
+            row.findViewById<TextView>(R.id.tv_rule_name).text = "${rule.name} Prefix:"
+            val input = row.findViewById<EditText>(R.id.et_rule_prefix)
+            input.setText(rule.prefix)
+            row.findViewById<TextView>(R.id.tv_rule_server).text = rule.displayServer()
+            prefixInputs[rule.name] = input
+            layoutServerRules.addView(row)
+        }
+        etCustomPrefix.setText(custom?.prefix.orEmpty())
+        etCustomServer.setText(custom?.server.orEmpty())
+        etCustomPort.setText(custom?.port?.toString().orEmpty())
+        cbCustomTls.isChecked = custom?.tls ?: false
     }
 
     /**
@@ -97,13 +149,15 @@ class ConfigDialog(context: Context) : Dialog(context) {
     }
 
     /**
-     * 设置过滤器类型
+     * 设置过滤器类型：选中的按钮实心，其余描边
      */
     fun setFilterType(filterType: FilterType) {
-        when (filterType) {
-            FilterType.DEVICE_NAME -> radioFilterType.check(R.id.radio_device_name)
-            FilterType.MAC -> radioFilterType.check(R.id.radio_mac)
-            FilterType.UUID -> radioFilterType.check(R.id.radio_uuid)
+        selectedFilterType = filterType
+        val primary = ContextCompat.getColor(context, R.color.primary)
+        filterButtons.forEach { (type, button) ->
+            val selected = type == filterType
+            button.backgroundTintList = ColorStateList.valueOf(if (selected) primary else Color.TRANSPARENT)
+            button.setTextColor(if (selected) Color.WHITE else primary)
         }
     }
 

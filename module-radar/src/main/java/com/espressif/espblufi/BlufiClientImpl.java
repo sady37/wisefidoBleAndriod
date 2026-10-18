@@ -78,7 +78,8 @@ class BlufiClientImpl implements BlufiParameter {
     private long mWriteTimeout = -1;
 
     //等待设备处理长度信息 超时timeout
-    private int NegotiateSecurity_timeout = 8000;  //// 原始前超时时间为 10-500 毫秒
+    // 发送 DH 长度包后的固定等待（latch 不会被触发，等同 sleep）。原版 10ms，曾误设 8000ms 导致每次连接白等 8 秒；iOS 不等待
+    private int NegotiateSecurity_timeout = 500;
 
     private int mPackageLengthLimit = -1;
     private int mBlufiMTU = -1;
@@ -932,7 +933,7 @@ class BlufiClientImpl implements BlufiParameter {
         CountDownLatch latch = new CountDownLatch(1);
         try {
             Log.d(TAG, "Waiting for device to process length information...");
-            boolean waited = latch.await(NegotiateSecurity_timeout, TimeUnit.MILLISECONDS); // Increased to 500ms
+            boolean waited = latch.await(NegotiateSecurity_timeout, TimeUnit.MILLISECONDS);
             Log.d(TAG, "Wait completed, status:" + (waited ? "completed" : "timeout"));
         } catch (InterruptedException e) {
             Log.e(TAG, "Wait process was interrupted", e);

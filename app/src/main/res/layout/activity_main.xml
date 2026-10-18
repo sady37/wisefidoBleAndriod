@@ -121,21 +121,32 @@
         </LinearLayout>
 
         <!-- ===================== STEP 2 ===================== -->
-        <TextView
+        <!-- 标题与说明同行（基线对齐），节省高度 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="@string/step_2"
-            android:textSize="@dimen/text_title"
-            android:textColor="@color/text_primary" />
+            android:orientation="horizontal"
+            android:baselineAligned="true"
+            android:layout_marginTop="2dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hint_server_info"
-            android:textSize="@dimen/text_caption"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="@dimen/spacing_tiny"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/step_2"
+                android:textSize="@dimen/text_title"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/spacing_small"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/hint_server_info"
+                android:textSize="@dimen/text_caption"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
 
         <!-- 服务器地址和端口并排显示，宽度比例 7:3 -->
         <LinearLayout
@@ -173,52 +184,8 @@
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
-        <!-- Recent Servers 历史入口 + TLS 开关，同一行，相距 10dp -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="@dimen/spacing_tiny">
-
-            <com.google.android.material.textview.MaterialTextView
-                android:id="@+id/tv_recent_server"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingHorizontal="@dimen/spacing_small"
-                android:paddingVertical="@dimen/spacing_tiny"
-                android:gravity="center_vertical"
-                android:text="@string/recent_servers"
-                android:textColor="@color/text_secondary"
-                android:textSize="@dimen/text_caption"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
-
-            <Space
-                android:layout_width="10dp"
-                android:layout_height="1dp"/>
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switch_tls"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/switch_tls_encryption"
-                android:textSize="@dimen/text_caption"
-                android:textColor="@color/text_primary"
-                app:showText="false" />
-        </LinearLayout>
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_server_history"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/spacing_tiny"
-            android:nestedScrollingEnabled="false"
-            android:visibility="gone" />
-
         <!-- ===================== STEP 3 ===================== -->
-        <!-- STEP 3 标题与 Query / Pair 按钮同行，右对齐（Pair 后设备断开，故 Query 在前） -->
+        <!-- STEP 3 标题与 Query / Pair 同行，按钮右对齐（Pair 后设备断开，故 Query 在前） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -266,14 +233,6 @@
                 app:cornerRadius="18dp"/>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/hint_select_wlan"
-            android:textSize="@dimen/text_caption"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="@dimen/spacing_tiny"/>
-
         <!-- WiFi名称和密码并排显示，宽度比例 5:5 -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -312,13 +271,33 @@
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
+
+        <!-- Recent Servers（左）+ Recent WiFi（右）放在 WiFi 输入框下方，远离 Pair 防误触 -->
         <LinearLayout
-            android:id="@+id/layout_history_headers"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="@dimen/spacing_small">
+            android:layout_marginTop="@dimen/spacing_tiny">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_recent_server"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="@dimen/spacing_small"
+                android:paddingVertical="@dimen/spacing_tiny"
+                android:gravity="center_vertical"
+                android:text="@string/recent_servers"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_caption"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="1dp"/>
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/tv_recent_wifi"
@@ -334,6 +313,14 @@
                 android:focusable="true"
                 android:background="?attr/selectableItemBackground" />
         </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_server_history"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_tiny"
+            android:nestedScrollingEnabled="false"
+            android:visibility="gone" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_wifi_history"

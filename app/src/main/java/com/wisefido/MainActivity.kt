@@ -108,7 +108,7 @@ class MainActivity : AppCompatActivity() {
     // region 属性定义
     private lateinit var etServerAddress: TextInputEditText
     private lateinit var etServerPort: TextInputEditText
-    private lateinit var switchTls: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var deviceServerRules: DeviceServerRules
     private lateinit var etWifiSsid: TextInputEditText
     private lateinit var etWifiPassword: TextInputEditText
     private lateinit var btnPair: MaterialButton
@@ -194,9 +194,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         configScan = ConfigStorage(this)
+        deviceServerRules = DeviceServerRules(this)
         initViews()
         setupHistoryViews()
         loadRecentConfigs()
+
+        // 拉取在线设备服务器模板（失败则用缓存/内置默认）
+        deviceServerRules.refreshFromRemote()
 
         RadarBleManager.getInstance(this).setErrorCallback { _, message ->
             appendStatusLine("Radar error: $message")
@@ -209,7 +213,6 @@ class MainActivity : AppCompatActivity() {
     private fun initViews() {
         etServerAddress = findViewById(R.id.et_server_address)
         etServerPort = findViewById(R.id.et_server_port)
-        switchTls = findViewById(R.id.switch_tls)
         etWifiSsid = findViewById(R.id.et_wifi_ssid)
         etWifiPassword = findViewById(R.id.et_wifi_password)
         btnPair = findViewById(R.id.btn_pair)
@@ -270,24 +273,16 @@ class MainActivity : AppCompatActivity() {
         etServerAddress.filters = arrayOf(noSpaceFilter)
         etServerPort.filters = arrayOf(noSpaceFilter)
         etWifiSsid.filters = arrayOf(ssidLengthFilter) // 只限制长度，允许空格
+        // 输入完（失去焦点）自动去掉 SSID 首尾空格，中间空格保留
+        etWifiSsid.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) trimSsidField() }
         etWifiPassword.filters = arrayOf() // 不应用任何过滤器，允许所有字符包括空格
-
-        // TLS/明文切换：仅当端口为空或仍是另一模式的默认端口时自动填充
-        switchTls.setOnCheckedChangeListener { _, isChecked ->
-            val current = etServerPort.text.toString().trim()
-                .replace("tcp", "", ignoreCase = true)
-            if (isChecked) {
-                if (current.isEmpty() || current == "29010") etServerPort.setText("29015")
-            } else {
-                if (current.isEmpty() || current == "29015") etServerPort.setText("29010")
-            }
-        }
 
         // 初始隐藏设备信息区域
         //layoutDeviceInfo.visibility = View.GONE
         updateDeviceDisplay(null)  // 显示空状态而不是隐藏
         updateActionButtonsState()
         btnSearch.setOnClickListener {
+            clearStatus()
             startScanActivity()
         }
 
@@ -297,6 +292,9 @@ class MainActivity : AppCompatActivity() {
                 cancelQrMatch()
                 return@setOnClickListener
             }
+            // 新动作开始：清空状态栏，断开当前 GATT 连接
+            clearStatus()
+            disconnectAllGatt()
             // Android 9 等旧版本 BLE 扫描依赖定位权限，扫码匹配前一并检查
             val needed = (REQUIRED_PERMISSIONS + Manifest.permission.CAMERA)
                 .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
@@ -369,11 +367,13 @@ class MainActivity : AppCompatActivity() {
             tvRecentServer.text = getString(R.string.recent_servers_count, recentServers.size.coerceAtMost(5))
             tvRecentServer.isEnabled = true
             tvRecentServer.alpha = 1f
+            setHistoryEntryColor(tvRecentServer, true)
             rvServerHistory.visibility = if (isServerHistoryExpanded) View.VISIBLE else View.GONE
         } else {
             tvRecentServer.text = getString(R.string.no_recent_servers)
             tvRecentServer.isEnabled = false
             tvRecentServer.alpha = 0.6f
+            setHistoryEntryColor(tvRecentServer, false)
             collapseServerHistory()
         }
 
@@ -383,13 +383,24 @@ class MainActivity : AppCompatActivity() {
             tvRecentWifi.text = getString(R.string.recent_networks_count, recentWifis.size.coerceAtMost(5))
             tvRecentWifi.isEnabled = true
             tvRecentWifi.alpha = 1f
+            setHistoryEntryColor(tvRecentWifi, true)
             rvWifiHistory.visibility = if (isWifiHistoryExpanded) View.VISIBLE else View.GONE
         } else {
             tvRecentWifi.text = getString(R.string.no_recent_networks)
             tvRecentWifi.isEnabled = false
             tvRecentWifi.alpha = 0.6f
+            setHistoryEntryColor(tvRecentWifi, false)
             collapseWifiHistory()
         }
+    }
+
+    /** 有记录时用主题蓝（文字 + 时钟图标），无记录时保持灰色 */
+    private fun setHistoryEntryColor(view: MaterialTextView, hasRecords: Boolean) {
+        val color = ContextCompat.getColor(this, if (hasRecords) R.color.primary else R.color.text_secondary)
+        view.setTextColor(color)
+        // 每个入口用独立的图标实例，避免共用 Drawable 时互相改色
+        val icon = ContextCompat.getDrawable(this, R.drawable.ic_history_24)?.mutate()?.apply { setTint(color) }
+        view.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null)
     }
 
     private fun toggleServerHistory() {
@@ -563,7 +574,7 @@ class MainActivity : AppCompatActivity() {
 
         saveCurrentConfig()
         // 进入扫描前断开残留的 GATT 连接：设备被连接时停止广播，会扫不到
-        RadarBleManager.getInstance(this).disconnect()
+        disconnectAllGatt()
         scanLauncher.launch(Intent(this, ScanActivity::class.java))
     }
 
@@ -573,6 +584,23 @@ class MainActivity : AppCompatActivity() {
     private fun onDeviceSelected(device: DeviceInfo) {
         selectedDevice = device
         updateDeviceDisplay(device)
+        applyDefaultServerForDevice(device)
+    }
+
+    /**
+     * 按设备前缀（Config 页 Default Device Server）自动填写服务器地址和端口
+     */
+    private fun applyDefaultServerForDevice(device: DeviceInfo) {
+        val rule = deviceServerRules.ruleForDevice(device.deviceName, device.deviceId, selectedQrCode) ?: return
+        etServerAddress.setText(rule.server)
+        etServerPort.setText(rule.port.toString())
+        appendStatusLine("Server set by prefix ${rule.prefix}: ${rule.displayServer()}")
+    }
+
+    /** 当前地址+端口是否走 TLS（由 Default Device Server 规则决定）；端口无效时按明文处理 */
+    private fun currentPortIsTls(): Boolean {
+        val port = parseProtocolAndPort(etServerPort.text.toString().trim())?.second ?: return false
+        return deviceServerRules.isTlsPort(etServerAddress.text.toString(), port)
     }
 
     /**
@@ -585,7 +613,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // region 首页扫码匹配
-    private var qrProgressDialog: androidx.appcompat.app.AlertDialog? = null
     private var qrMatching = false
     private var qrMatchCode = ""
     private var qrOriginalCode = ""
@@ -722,16 +749,12 @@ class MainActivity : AppCompatActivity() {
         qrSeenDevices.clear()
         appendStatusLine("QR code: $code, matching device: $qrMatchCode")
         // 匹配前断开残留的 GATT 连接，让设备恢复广播
-        RadarBleManager.getInstance(this).disconnect()
+        disconnectAllGatt()
         startQrStage1()
         qrHandler.postDelayed(qrStage1Runnable, QR_MATCH_STAGE1_TIMEOUT)
         qrHandler.postDelayed(qrTimeoutRunnable, QR_MATCH_TOTAL_TIMEOUT)
-        qrProgressDialog = androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(getString(R.string.scan_qr_title))
-            .setMessage(getString(R.string.qr_matching_device, code))
-            .setNegativeButton(android.R.string.cancel) { _, _ -> cancelQrMatch() }
-            .setOnCancelListener { cancelQrMatch() }
-            .show()
+        // 不再弹进度框：匹配过程只在状态栏显示，再点一次扫码图标可取消
+        appendStatusLine("Matching... tap the QR icon again to cancel")
     }
 
     @SuppressLint("MissingPermission")
@@ -819,6 +842,7 @@ class MainActivity : AppCompatActivity() {
         if (!qrMatching) return
         val code = qrOriginalCode
         stopQrMatch()
+        appendStatusLine(getString(R.string.device_not_found, code))
         Toast.makeText(this, getString(R.string.device_not_found, code), Toast.LENGTH_LONG).show()
     }
 
@@ -832,8 +856,6 @@ class MainActivity : AppCompatActivity() {
         qrHandler.removeCallbacks(qrStage1Runnable)
         qrHandler.removeCallbacks(qrTimeoutRunnable)
         stopQrScans()
-        qrProgressDialog?.dismiss()
-        qrProgressDialog = null
     }
 
     private fun cancelQrMatch() {
@@ -872,6 +894,8 @@ class MainActivity : AppCompatActivity() {
     // region配网操作
 
     private fun handlePairClick() {
+        hideKeyboard()
+        clearStatus()
         // 首先确保没有扫描在进行
         RadarBleManager.getInstance(this).stopScan()
         SleepaceBleManager.getInstance(this).stopScan()
@@ -881,6 +905,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // 先显示实际使用的服务器和 TLS 判断（TLS 由 Default Device Server 规则决定，首页无开关）
+        val port = parseProtocolAndPort(etServerPort.text.toString().trim())?.second
+        if (port != null) {
+            appendStatusLine("Server: ${etServerAddress.text.toString().trim()}:$port  TLS=${if (currentPortIsTls()) "Y" else "N"}")
+        }
 
         // 根据设备类型进行不同的验证和配网
         when (selectedDevice?.productorName) {
@@ -917,7 +946,6 @@ class MainActivity : AppCompatActivity() {
     private fun configureRadarDevice(wifiConfig: WifiConfig?, serverConfig: ServerConfig?) {
         val device = selectedDevice ?: return
         val radarManager = RadarBleManager.getInstance(this)
-        tvStatusOutput.text = ""
         appendStatusLine("Configuring device...")
 
         radarManager.configureDevice(
@@ -938,6 +966,33 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** 每个动作（QR / BLE 扫描、Query、Pair）开始时清空状态栏，只保留本次动作的输出 */
+    private fun clearStatus() {
+        runOnUiThread { tvStatusOutput.text = "" }
+    }
+
+    /** 收起键盘并清除输入焦点（焦点离开 SSID 时会顺带去掉首尾空格） */
+    private fun hideKeyboard() {
+        trimSsidField()
+        currentFocus?.let { view ->
+            (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .hideSoftInputFromWindow(view.windowToken, 0)
+            view.clearFocus()
+        }
+    }
+
+    private fun trimSsidField() {
+        val text = etWifiSsid.text?.toString() ?: return
+        val trimmed = text.trim()
+        if (trimmed != text) etWifiSsid.setText(trimmed)
+    }
+
+    /** 断开雷达与 Sleepace 当前的 GATT 连接 */
+    private fun disconnectAllGatt() {
+        RadarBleManager.getInstance(this).disconnect()
+        SleepaceBleManager.getInstance(this).disconnect()
     }
 
     private fun appendStatusLine(message: String) {
@@ -989,7 +1044,7 @@ class MainActivity : AppCompatActivity() {
                 bleDevice,
                 etServerAddress.text.toString(),
                 etServerPort.text.toString().replace("tcp", "").replace("TCP", "").toInt(),
-                switchTls.isChecked,
+                currentPortIsTls(),
                 etWifiSsid.text.toString().trim().toByteArray(),
                 etWifiPassword.text.toString()
             ) { callbackData ->
@@ -997,6 +1052,9 @@ class MainActivity : AppCompatActivity() {
                     when (callbackData.status) {
                         StatusCode.SUCCESS -> {
                             hideMessage()
+                            // 与雷达一致：配网成功后记入 Recent WiFi / Recent Servers
+                            configScan.saveWifiConfig(wifiConfig)
+                            configScan.saveServerConfig(serverConfig)
                             // 处理配置结果
                             handleConfigResult(true)
                             if (callbackData.result is DeviceInfo) {
@@ -1051,16 +1109,15 @@ class MainActivity : AppCompatActivity() {
 
     // region 设备状态查询
     private fun handleStatusClick() {
+        hideKeyboard()
+        clearStatus()
         if (selectedDevice == null) {
             showMessage(getString(R.string.toast_select_device_first))
             return
         }
 
         when (selectedDevice?.productorName) {
-            Productor.radarQL -> {
-                showMessage("Querying device status...")
-                queryRadarStatus()
-            }
+            Productor.radarQL -> queryRadarStatus()  // 内部会输出 "Querying device status..."
             Productor.sleepBoardHS -> {
                 showMessage("Querying device status...")
                 querySleepaceStatus()
@@ -1188,11 +1245,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Sleepace 查询：厂家 SDK 只能读 WiFi 设置（SSID / 密码 / DHCP 或静态 IP），读不到服务器地址和 TLS
+     */
+    @SuppressLint("MissingPermission")
     private fun querySleepaceStatus() {
         val deviceInfo = selectedDevice ?: return
-        // SleepBoard 设备不支持查询，直接提示
-        showMessage("Failed, please rescan; deviceType BM8701_2 is not support query")
-        tvStatusOutput.text = "Query not supported for SleepBoard devices"
+        val bleDevice = BleDeviceManager.getDeviceAs(deviceInfo.macAddress, com.sleepace.sdk.domain.BleDevice::class.java)
+        if (bleDevice == null) {
+            showMessage(getString(R.string.toast_invalid_device))
+            return
+        }
+        SleepaceBleManager.getInstance(this).queryWifiConfig(bleDevice) { cd ->
+            runOnUiThread {
+                val info = StringBuilder()
+                    .append("deviceName:${deviceInfo.deviceName}\n")
+                    .append("macAddress:${deviceInfo.macAddress}\n")
+                    .append("BLErssi:${deviceInfo.rssi}dBm\n")
+                val setting = cd.result as? com.sleepace.sdk.wificonfig.WifiSetting
+                if (cd.status == StatusCode.SUCCESS && setting != null) {
+                    info.append("wifiSsid:${setting.ssid.orEmpty()}\n")
+                        .append("wifiPwd:${setting.password.orEmpty()}\n")
+                    if (setting.ipType == "0") {
+                        info.append("ipType:DHCP\n")
+                    } else {
+                        info.append("ipType:Static ip:${setting.staticIp} mask:${setting.staticCode} gw:${setting.staticGateway}\n")
+                    }
+                    info.append("(server/TLS not readable via Sleepace SDK)")
+                } else {
+                    info.append("Query failed, status:${cd.status} ${cd.result ?: ""}")
+                }
+                appendStatusLine(info.toString())
+            }
+        }
     }
 
     // endregion

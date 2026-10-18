@@ -70,8 +70,16 @@ class RadarBleManager private constructor(private val context: Context) {
         private const val DEVICERESTART_DELAYTIME = 5000L
         private const val RESTART_FINALIZE_DELAY = 3000L
         private const val WIFI_SCAN_TIMEOUT = 8000L
-        private const val CUSTOM_COMMAND_TIMEOUT = 300L
+        // 新固件（MCU 2.0）首包约 400ms 才到，300ms 会把应答当超时丢弃；收到数据后仍按 RUN_STATUS_FINALIZE_DELAY 结束
+        private const val CUSTOM_COMMAND_TIMEOUT = 3000L
         private const val RUN_STATUS_FINALIZE_DELAY = 500L
+
+        // 运行状态里的 FreeRTOS 任务列表行，如 "BTC_TASK       \t47250\t\t<1%"
+        private val TASK_LIST_LINE = Regex("""^\S.*\t\d+\t+<?\d+%\s*$""")
+
+        /** 去掉任务列表（CPU 占用），只保留 UID / MCU / Radar / WiFi / Server 等信息 */
+        internal fun stripTaskList(raw: String): String =
+            raw.lines().filterNot { TASK_LIST_LINE.matches(it) }.joinToString("\n").trim()
 
         // 错误处理相关常量
         private const val MAX_RETRY_COUNT = 3
@@ -1290,7 +1298,7 @@ class RadarBleManager private constructor(private val context: Context) {
                     Log.d(TAG, "Run status response completed in ${elapsed}ms")
                     runStatusStartTime = 0L
                 }
-                runStatusBuffer?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                runStatusBuffer?.toString()?.let { stripTaskList(it) }?.takeIf { it.isNotEmpty() }?.let {
                     statusMap["runningStatus"] = it
                     Log.d(TAG, "Run status finalize with payload length=${it.length}")
                 }
@@ -1635,7 +1643,7 @@ class RadarBleManager private constructor(private val context: Context) {
                     Log.d(TAG, "Run status response completed in ${elapsed}ms")
                     runStatusStartTime = 0L
                 }
-                runStatusBuffer?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                runStatusBuffer?.toString()?.let { stripTaskList(it) }?.takeIf { it.isNotEmpty() }?.let {
                     statusMap["runningStatus"] = it
                 }
                 runStatusBuffer = null
