@@ -15,6 +15,7 @@ android {
         versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {
@@ -38,6 +39,10 @@ android {
     buildFeatures {
         viewBinding = true
         dataBinding = true
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
 
     compileOptions {
@@ -81,6 +86,8 @@ dependencies {
     testImplementation(libs.junit)
     // 单元测试用真实 org.json（android.jar 里的是桩实现）
     testImplementation("org.json:json:20240303")
+    // 需要 SharedPreferences 的单元测试
+    testImplementation("org.robolectric:robolectric:4.14.1")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

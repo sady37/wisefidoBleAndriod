@@ -10,19 +10,20 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 设备前缀 -> 默认服务器映射；每条规则为 name + prefix + server + port + tls(Y/N)。
+ * 设备前缀 -> 默认服务器映射；每条规则为 name + prefix + server + port + tls(Y/N) + protocol(tcp/udp，缺省 tcp)。
  * 规则条数不限（新增硬件只需改在线 JSON），按顺序匹配前缀，先匹配先用。
  * 是否 TLS 只由规则里的 tls 决定，不再由前端开关控制。
- * 优先级：本地自定义规则 > 在线模板（含本地前缀修改）> 内置默认值
+ * 优先级：本地自定义规则 > 在线模板（含本地规则修改）> 内置默认值
  */
 data class DeviceServerRule(
     val name: String,
     val prefix: String,
     val server: String,
     val port: Int,
-    val tls: Boolean
+    val tls: Boolean,
+    val protocol: String = "tcp"
 ) {
-    fun displayServer(): String = "$server:$port  TLS=${if (tls) "Y" else "N"}"
+    fun displayServer(): String = "$server:${if (protocol == "udp") "udp$port" else port}  TLS=${if (tls) "Y" else "N"}"
 }
 
 class DeviceServerRules(context: Context) {
@@ -38,8 +39,9 @@ class DeviceServerRules(context: Context) {
 
         // SharedPreferences 键（v4：任意条数规则）
         private const val KEY_REMOTE_CACHE = "deviceServerRemoteTemplateV4"
-        private const val KEY_USER_PREFIXES = "deviceServerUserPrefixesV4"  // {name: prefix}
+        private const val KEY_USER_PREFIXES = "deviceServerUserPrefixesV4"  // 旧版 {name: prefix}，仅用于迁移
         private const val KEY_USER_CUSTOM = "deviceServerUserCustomV4"      // 本地自定义规则
+        private const val KEY_USER_RULES = "deviceServerUserRulesV5"        // {name: {prefix, server, port, tls}} 仅存与默认不同的字段
 
         const val CUSTOM_NAME = "Custom"
 
@@ -72,6 +74,10 @@ class DeviceServerRules(context: Context) {
             else -> null
         }?.takeIf { isValidPort(it) }
 
+        /** 协议只认 tcp/udp（大小写不敏感），缺省或非法按 tcp */
+        private fun parseProtocol(value: Any?): String =
+            (value as? String)?.trim()?.lowercase()?.takeIf { it == "tcp" || it == "udp" } ?: "tcp"
+
         /** 校验单条规则：name/prefix/server/port 必填，非法返回 null；未知字段忽略，便于以后扩展 */
         internal fun parseRule(obj: JSONObject): DeviceServerRule? {
             val name = (obj.opt("name") as? String)?.trim().orEmpty()
@@ -79,8 +85,9 @@ class DeviceServerRules(context: Context) {
             val server = (obj.opt("server") as? String)?.trim()?.lowercase().orEmpty()
             val port = parsePort(obj.opt("port")) ?: return null
             val tls = parseTls(obj.opt("tls")) ?: return null
+            val protocol = parseProtocol(obj.opt("protocol"))
             if (name.isEmpty() || prefix.isEmpty() || server.isEmpty()) return null
-            return DeviceServerRule(name, prefix, server, port, tls)
+            return DeviceServerRule(name, prefix, server, port, tls, protocol)
         }
 
         /** 解析整份模板；任一条非法或 name 重复则整体视为无效，保留上次缓存 */
@@ -102,11 +109,18 @@ class DeviceServerRules(context: Context) {
     fun defaultRules(): List<DeviceServerRule> =
         prefs.getString(KEY_REMOTE_CACHE, null)?.let { parseTemplate(it) } ?: BUILT_IN
 
-    /** 在线/内置规则，叠加本地前缀修改 */
+    /** 在线/内置规则，叠加本地规则修改 */
     fun currentRules(): List<DeviceServerRule> {
-        val userPrefixes = userPrefixes()
+        val overrides = userRuleOverrides()
         return defaultRules().map { rule ->
-            userPrefixes.optString(rule.name).takeIf { it.isNotEmpty() }?.let { rule.copy(prefix = it) } ?: rule
+            val o = overrides.optJSONObject(rule.name) ?: return@map rule
+            rule.copy(
+                prefix = o.optString("prefix").takeIf { it.isNotEmpty() } ?: rule.prefix,
+                server = o.optString("server").takeIf { it.isNotEmpty() } ?: rule.server,
+                port = parsePort(o.opt("port")) ?: rule.port,
+                tls = parseTls(o.opt("tls")) ?: rule.tls,
+                protocol = o.optString("protocol").takeIf { it == "tcp" || it == "udp" } ?: rule.protocol
+            )
         }
     }
 
@@ -136,34 +150,67 @@ class DeviceServerRules(context: Context) {
 
     // region 本地修改
 
-    private fun userPrefixes(): JSONObject =
-        prefs.getString(KEY_USER_PREFIXES, null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+    /** 本地规则覆盖；首次读取时把旧版前缀覆盖迁移进来并删除旧 key */
+    internal fun userRuleOverrides(): JSONObject {
+        val map = prefs.getString(KEY_USER_RULES, null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+        val legacy = prefs.getString(KEY_USER_PREFIXES, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (legacy != null) {
+            for (name in legacy.keys()) {
+                val entry = map.optJSONObject(name) ?: JSONObject().also { map.put(name, it) }
+                if (!entry.has("prefix")) entry.put("prefix", legacy.optString(name))
+            }
+            prefs.edit().remove(KEY_USER_PREFIXES).putString(KEY_USER_RULES, map.toString()).apply()
+        }
+        return map
+    }
 
-    /** 保存某条规则的本地前缀；为空或与默认值相同则清除覆盖 */
+    /** 保存某条规则的本地前缀；为空或与默认值相同则清除前缀覆盖 */
     fun saveUserPrefix(ruleName: String, prefix: String) {
-        val map = userPrefixes()
+        val map = userRuleOverrides()
         val trimmed = prefix.trim()
         val defaultPrefix = defaultRules().firstOrNull { it.name == ruleName }?.prefix.orEmpty()
-        if (trimmed.isEmpty() || trimmed.equals(defaultPrefix, ignoreCase = true)) map.remove(ruleName) else map.put(ruleName, trimmed)
-        prefs.edit().putString(KEY_USER_PREFIXES, map.toString()).apply()
+        val entry = map.optJSONObject(ruleName) ?: JSONObject()
+        if (trimmed.isEmpty() || trimmed.equals(defaultPrefix, ignoreCase = true)) entry.remove("prefix") else entry.put("prefix", trimmed)
+        putOrRemove(map, ruleName, entry)
+    }
+
+    /** 保存整条规则的本地覆盖；非法字段不存，全部与默认相同则删除该条覆盖 */
+    fun saveUserRule(ruleName: String, prefix: String, server: String, port: Int?, tls: Boolean, protocol: String = "tcp") {
+        val default = defaultRules().firstOrNull { it.name == ruleName } ?: return
+        val map = userRuleOverrides()
+        val entry = JSONObject()
+        val p = prefix.trim()
+        val s = server.trim().lowercase()
+        if (p.isNotEmpty() && !p.equals(default.prefix, ignoreCase = true)) entry.put("prefix", p)
+        if (s.isNotEmpty() && s != default.server) entry.put("server", s)
+        if (isValidPort(port) && port != default.port) entry.put("port", port)
+        if (tls != default.tls) entry.put("tls", tls)
+        if (protocol != default.protocol) entry.put("protocol", protocol)
+        putOrRemove(map, ruleName, entry)
+    }
+
+    private fun putOrRemove(map: JSONObject, ruleName: String, entry: JSONObject) {
+        if (entry.length() == 0) map.remove(ruleName) else map.put(ruleName, entry)
+        prefs.edit().putString(KEY_USER_RULES, map.toString()).apply()
     }
 
     /** 保存本地自定义规则；前缀/服务器为空或端口非法则清除 */
-    fun saveCustomRule(prefix: String, server: String, port: Int?, tls: Boolean) {
+    fun saveCustomRule(prefix: String, server: String, port: Int?, tls: Boolean, protocol: String = "tcp") {
         val rule = if (isValidPort(port)) parseRule(
-            JSONObject().put("name", CUSTOM_NAME).put("prefix", prefix).put("server", server).put("port", port).put("tls", tls)
+            JSONObject().put("name", CUSTOM_NAME).put("prefix", prefix).put("server", server).put("port", port)
+                .put("tls", tls).put("protocol", protocol)
         ) else null
         if (rule == null) {
             prefs.edit().remove(KEY_USER_CUSTOM).apply()
             return
         }
         val json = JSONObject().put("name", rule.name).put("prefix", rule.prefix).put("server", rule.server)
-            .put("port", rule.port).put("tls", rule.tls)
+            .put("port", rule.port).put("tls", rule.tls).put("protocol", rule.protocol)
         prefs.edit().putString(KEY_USER_CUSTOM, json.toString()).apply()
     }
 
     fun clearUserOverrides() {
-        prefs.edit().remove(KEY_USER_PREFIXES).remove(KEY_USER_CUSTOM).apply()
+        prefs.edit().remove(KEY_USER_PREFIXES).remove(KEY_USER_RULES).remove(KEY_USER_CUSTOM).apply()
     }
 
     // endregion

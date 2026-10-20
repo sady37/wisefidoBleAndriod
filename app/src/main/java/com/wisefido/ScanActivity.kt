@@ -11,7 +11,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -21,6 +20,7 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -61,10 +61,8 @@ class ConfigDialog(context: Context) : Dialog(context, android.R.style.Theme_Dev
     private val rules = DeviceServerRules(context)
     private val layoutServerRules: LinearLayout
     private val prefixInputs = mutableMapOf<String, EditText>()  // 规则 name -> 前缀输入框
-    private val etCustomPrefix: EditText
-    private val etCustomServer: EditText
-    private val etCustomPort: EditText
-    private val cbCustomTls: CheckBox
+    private val serverInputs = mutableMapOf<String, EditText>()  // 规则 name -> host:port 输入框
+    private val tlsInputs = mutableMapOf<String, Switch>()       // 规则 name -> TLS 滑钮
 
     // 配置更改监听器
     private var onConfigChangedListener: ((String, FilterType) -> Unit)? = null
@@ -83,28 +81,51 @@ class ConfigDialog(context: Context) : Dialog(context, android.R.style.Theme_Dev
         )
         filterButtons.forEach { (type, button) -> button.setOnClickListener { setFilterType(type) } }
         layoutServerRules = findViewById(R.id.layout_server_rules)
-        etCustomPrefix = findViewById(R.id.et_custom_prefix)
-        etCustomServer = findViewById(R.id.et_custom_server)
-        etCustomPort = findViewById(R.id.et_custom_port)
-        cbCustomTls = findViewById(R.id.cb_custom_tls)
 
         fillServerRules(rules.currentRules(), rules.customRule())
-        // 恢复默认服务器规则（在线模板，无则内置）并清空自定义，确认后才清除本地修改
-        findViewById<Button>(R.id.btn_reset_servers).setOnClickListener { fillServerRules(rules.defaultRules(), null) }
+        // 打开对话框时同步在线模板，有更新则按最新规则重填（回调已在主线程）
+        rules.refreshFromRemote { updated ->
+            if (updated) fillServerRules(rules.currentRules(), rules.customRule())
+        }
+        // 同步最新在线模板（失败则用缓存/内置）并清除本地规则修改与自定义
+        val btnConfigSync = findViewById<Button>(R.id.btn_config_sync)
+        btnConfigSync.setOnClickListener {
+            btnConfigSync.isEnabled = false
+            rules.refreshFromRemote {
+                rules.clearUserOverrides()
+                fillServerRules(rules.defaultRules(), null)
+                btnConfigSync.isEnabled = true
+            }
+        }
 
         // 确认按钮点击事件
         findViewById<Button>(R.id.btn_confirm).setOnClickListener {
-            // Server3 填了但端口不对时提示，避免静默丢弃
-            val customServer = etCustomServer.text.toString().trim()
-            val customPort = etCustomPort.text.toString().trim().toIntOrNull()
-            if (customServer.isNotEmpty() && !DeviceServerRules.isValidPort(customPort)) {
-                etCustomPort.error = "1-65535"
-                return@setOnClickListener
+            // 逐行解析 host:[tcp|udp]port；协议前缀可省略（默认 tcp）
+            for ((name, input) in serverInputs) {
+                val text = input.text.toString().trim()
+                val idx = text.lastIndexOf(':')
+                val host = if (idx > 0) text.substring(0, idx).trim() else ""
+                val portText = if (idx > 0) text.substring(idx + 1).trim() else ""
+                val match = Regex("^(tcp|udp)?(\\d+)$", RegexOption.IGNORE_CASE).matchEntire(portText)
+                val protocol = match?.groupValues?.get(1)?.lowercase()?.ifEmpty { "tcp" } ?: "tcp"
+                val port = match?.groupValues?.get(2)?.toIntOrNull()
+                val prefix = prefixInputs[name]?.text.toString()
+                val tls = tlsInputs[name]?.isChecked ?: false
+                if (name == DeviceServerRules.CUSTOM_NAME) {
+                    // 填了服务器但端口不对时提示，避免静默丢弃；留空走 saveCustomRule 的清除语义
+                    if (host.isNotEmpty() && !DeviceServerRules.isValidPort(port)) {
+                        input.error = "host:port (1-65535)"
+                        return@setOnClickListener
+                    }
+                    rules.saveCustomRule(prefix, host, port, tls, protocol)
+                } else {
+                    if (host.isEmpty() || !DeviceServerRules.isValidPort(port)) {
+                        input.error = "host:port (1-65535)"
+                        return@setOnClickListener
+                    }
+                    rules.saveUserRule(name, prefix, host, port, tls, protocol)
+                }
             }
-
-            // 保存默认设备服务器规则
-            prefixInputs.forEach { (name, input) -> rules.saveUserPrefix(name, input.text.toString()) }
-            rules.saveCustomRule(etCustomPrefix.text.toString(), customServer, customPort, cbCustomTls.isChecked)
 
             // 触发配置更改监听器
             onConfigChangedListener?.invoke(etRadarName.text.toString(), selectedFilterType)
@@ -121,24 +142,31 @@ class ConfigDialog(context: Context) : Dialog(context, android.R.style.Theme_Dev
         setFilterType(selectedFilterType)
     }
 
-    /** 每条规则两行：「<name> Prefix: [输入框]」+「Server: host:port TLS=Y/N」 */
+    /** 每条规则（含 Custom）两行：「<name> Prefix: [输入框] [TLS 滑钮]」+「Server: [host:port 输入框]」；Custom 无配置时显示空输入框 */
     private fun fillServerRules(list: List<DeviceServerRule>, custom: DeviceServerRule?) {
         layoutServerRules.removeAllViews()
         prefixInputs.clear()
+        serverInputs.clear()
+        tlsInputs.clear()
         val inflater = LayoutInflater.from(context)
-        for (rule in list) {
+        fun addRow(name: String, prefix: String, server: String, tls: Boolean) {
             val row = inflater.inflate(R.layout.item_server_rule, layoutServerRules, false)
-            row.findViewById<TextView>(R.id.tv_rule_name).text = "${rule.name} Prefix:"
-            val input = row.findViewById<EditText>(R.id.et_rule_prefix)
-            input.setText(rule.prefix)
-            row.findViewById<TextView>(R.id.tv_rule_server).text = rule.displayServer()
-            prefixInputs[rule.name] = input
+            row.findViewById<TextView>(R.id.tv_rule_name).text = "$name Prefix:"
+            val prefixInput = row.findViewById<EditText>(R.id.et_rule_prefix)
+            prefixInput.setText(prefix)
+            val serverInput = row.findViewById<EditText>(R.id.et_rule_server)
+            serverInput.setText(server)
+            val tlsSwitch = row.findViewById<Switch>(R.id.sw_rule_tls)
+            tlsSwitch.isChecked = tls
+            prefixInputs[name] = prefixInput
+            serverInputs[name] = serverInput
+            tlsInputs[name] = tlsSwitch
             layoutServerRules.addView(row)
         }
-        etCustomPrefix.setText(custom?.prefix.orEmpty())
-        etCustomServer.setText(custom?.server.orEmpty())
-        etCustomPort.setText(custom?.port?.toString().orEmpty())
-        cbCustomTls.isChecked = custom?.tls ?: false
+        fun serverText(rule: DeviceServerRule) = "${rule.server}:${if (rule.protocol == "udp") "udp" else ""}${rule.port}"
+        for (rule in list) addRow(rule.name, rule.prefix, serverText(rule), rule.tls)
+        addRow(DeviceServerRules.CUSTOM_NAME, custom?.prefix.orEmpty(),
+            custom?.let { serverText(it) }.orEmpty(), custom?.tls ?: false)
     }
 
     /**

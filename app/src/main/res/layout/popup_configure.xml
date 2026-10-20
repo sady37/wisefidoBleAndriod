@@ -112,115 +112,20 @@
             android:textStyle="bold" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_reset_servers"
+            android:id="@+id/btn_config_sync"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="40dp"
-            android:text="Reset"
+            android:text="Config Sync"
             android:textAllCaps="false" />
     </LinearLayout>
 
-    <!-- 在线模板规则（条数不限），由代码按规则动态生成：前缀可改，服务器跟随在线模板 -->
+    <!-- 服务器规则（条数不限，最后一条为本地自定义 Custom，优先级最高），由代码动态生成 -->
     <LinearLayout
         android:id="@+id/layout_server_rules"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical" />
-
-    <!-- 本地自定义规则（优先级最高）：前缀、服务器、端口、TLS 都可改 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:minHeight="42dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="110dp"
-            android:layout_height="wrap_content"
-            android:text="Custom Prefix:"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-
-        <EditText
-            android:id="@+id/et_custom_prefix"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="36dp"
-            android:background="@drawable/bg_input_border"
-            android:singleLine="true"
-            android:textSize="14sp"
-            android:paddingStart="@dimen/spacing_small"
-            android:paddingEnd="@dimen/spacing_small"
-            android:importantForAutofill="no"
-            android:inputType="text" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:minHeight="42dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="110dp"
-            android:layout_height="wrap_content"
-            android:text="Custom Server:"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-
-        <EditText
-            android:id="@+id/et_custom_server"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="36dp"
-            android:background="@drawable/bg_input_border"
-            android:hint="app.wisefido.com"
-            android:singleLine="true"
-            android:textSize="14sp"
-            android:paddingStart="@dimen/spacing_small"
-            android:paddingEnd="@dimen/spacing_small"
-            android:importantForAutofill="no"
-            android:inputType="textUri" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:minHeight="42dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="110dp"
-            android:layout_height="wrap_content"
-            android:text="Port:"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-
-        <EditText
-            android:id="@+id/et_custom_port"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="36dp"
-            android:background="@drawable/bg_input_border"
-            android:hint="29010"
-            android:singleLine="true"
-            android:textSize="14sp"
-            android:paddingStart="@dimen/spacing_small"
-            android:paddingEnd="@dimen/spacing_small"
-            android:importantForAutofill="no"
-            android:inputType="number" />
-
-        <CheckBox
-            android:id="@+id/cb_custom_tls"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="TLS" />
-    </LinearLayout>
 
     <!-- 确认和取消按钮 -->
     <LinearLayout

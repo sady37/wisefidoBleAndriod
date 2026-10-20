@@ -199,15 +199,18 @@ class MainActivity : AppCompatActivity() {
         setupHistoryViews()
         loadRecentConfigs()
 
-        // 拉取在线设备服务器模板（失败则用缓存/内置默认）
-        deviceServerRules.refreshFromRemote()
-
         RadarBleManager.getInstance(this).setErrorCallback { _, message ->
             appendStatusLine("Radar error: $message")
         }
 
     }
     // endregion
+
+    override fun onResume() {
+        super.onResume()
+        // 每次回到首页都拉取在线设备服务器模板（失败则用缓存/内置默认）
+        deviceServerRules.refreshFromRemote()
+    }
 
     // region UI初始化
     private fun initViews() {
@@ -593,7 +596,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyDefaultServerForDevice(device: DeviceInfo) {
         val rule = deviceServerRules.ruleForDevice(device.deviceName, device.deviceId, selectedQrCode) ?: return
         etServerAddress.setText(rule.server)
-        etServerPort.setText(rule.port.toString())
+        etServerPort.setText(if (rule.protocol == "udp") "udp${rule.port}" else rule.port.toString())
         appendStatusLine("Server set by prefix ${rule.prefix}: ${rule.displayServer()}")
     }
 
