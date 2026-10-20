@@ -5,14 +5,15 @@ plugins {
 
 android {
     namespace = "com.wisefido"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.wisefido"
         minSdk = 28
-        targetSdk = 35
-        versionCode = 3
-        versionName = "1.1"
+        //noinspection EditedTargetSdkVersion
+        targetSdk = 36
+        versionCode = 5
+        versionName = "2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
@@ -20,7 +21,7 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(project.properties["RELEASE_STORE_FILE"] as String)
+            storeFile = rootProject.file(project.properties["RELEASE_STORE_FILE"] as String)
             storePassword = project.properties["RELEASE_STORE_PASSWORD"] as String
             keyAlias = project.properties["RELEASE_KEY_ALIAS"] as String
             keyPassword = project.properties["RELEASE_KEY_PASSWORD"] as String
@@ -28,6 +29,7 @@ android {
     }
         buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -77,9 +79,9 @@ dependencies {
 
     // 二维码扫描
     implementation("com.google.mlkit:barcode-scanning:17.3.0")  // 内置模型，无需下载
-    implementation("androidx.camera:camera-camera2:1.3.4")
-    implementation("androidx.camera:camera-lifecycle:1.3.4")
-    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
 
 
     // 测试依赖
