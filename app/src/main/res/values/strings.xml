@@ -27,6 +27,9 @@
     <string name="hint_wifi_password">Password</string>
     <string name="btn_pair">Pair</string>
     <string name="btn_qr_scan">QRScan</string>
+    <string name="btn_measure">Measure</string>
+    <string name="aruco_found">ArUco marker found, measuring radar height</string>
+    <string name="radar_height_result">Radar height: %1$.2f m</string>
     <string name="btn_ble_scan">BleScan</string>
     <string name="btn_status">Query</string>
     <string name="unknown_device">unknown device</string>
@@ -68,7 +71,7 @@
     <string name="back">Back</string>
     <string name="search_device">Search Device</string>
     <string name="scan">SCAN</string>
-    <string name="scan_qr_title">Scan device QR code</string>
+    <string name="scan_qr_title">Scan device QR code (or the ArUco label on the box bottom to measure radar height)</string>
     <string name="qr_matching_device">Matching device: %1$s</string>
     <string name="qr_device_selected">Device selected: %1$s</string>
     <string name="stop">STOP</string>

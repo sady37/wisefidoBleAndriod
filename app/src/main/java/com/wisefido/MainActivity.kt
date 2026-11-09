@@ -36,6 +36,10 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import com.wisefido.measure.AngleMeasureActivity
+import com.wisefido.measure.ArucoDetector
+import com.wisefido.measure.GrayFrame
+import com.wisefido.measure.HeightMeasureActivity
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -178,6 +182,18 @@ class MainActivity : AppCompatActivity() {
         tvDeviceRssi.text = device.rssi.toString() + "dBm"
         updateActionButtonsState()
     }
+    /** 盒底 ArUco 测高页返回：高度显示在状态栏并弹窗 */
+    private val heightLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val h = result.data?.getDoubleExtra(HeightMeasureActivity.EXTRA_HEIGHT, Double.NaN) ?: return@registerForActivityResult
+        if (h.isNaN()) return@registerForActivityResult
+        val text = getString(R.string.radar_height_result, h)
+        appendStatusLine(text)
+        showMessage(text)
+    }
+
     private val configLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -228,6 +244,9 @@ class MainActivity : AppCompatActivity() {
         layoutDeviceInfo = findViewById(R.id.layout_device_info)
         btnSearch = findViewById(R.id.btn_ble_scan)
         btnQrScan = findViewById(R.id.btn_qr_scan)
+        findViewById<View>(R.id.btn_measure).setOnClickListener {
+            startActivity(Intent(this, AngleMeasureActivity::class.java))
+        }
         tvStatusOutput = findViewById(R.id.tv_status_output)
         rvServerHistory = findViewById(R.id.rv_server_history)
         rvWifiHistory = findViewById(R.id.rv_wifi_history)
@@ -658,6 +677,20 @@ class MainActivity : AppCompatActivity() {
         )
         val handled = AtomicBoolean(false)
         var cameraProvider: ProcessCameraProvider? = null
+        val arucoDetector = ArucoDetector()
+        var arucoStreak = 0
+        /** 只在 analysisExecutor 上调用：Y 平面即灰度图，直接检测 */
+        fun arucoHit(proxy: androidx.camera.core.ImageProxy): Boolean {
+            val plane = proxy.planes[0]
+            if (plane.pixelStride != 1) return false
+            val buf = plane.buffer
+            buf.rewind()
+            val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+            buf.rewind()
+            val gray = GrayFrame(bytes, proxy.width, proxy.height, plane.rowStride)
+            arucoStreak = if (arucoDetector.detect(gray) != null) arucoStreak + 1 else 0
+            return arucoStreak >= 2
+        }
 
         view.findViewById<View>(R.id.btn_qr_close).setOnClickListener { dialog.dismiss() }
         dialog.setOnDismissListener {
@@ -685,6 +718,18 @@ class MainActivity : AppCompatActivity() {
             analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                 val mediaImage = imageProxy.image
                 if (mediaImage == null || handled.get()) {
+                    imageProxy.close()
+                    return@setAnalyzer
+                }
+                // 盒底 ArUco 码（同一画面旁路识别，连续 2 帧命中）→ 关闭扫码，进入测高
+                if (arucoHit(imageProxy)) {
+                    if (handled.compareAndSet(false, true)) {
+                        runOnUiThread {
+                            dialog.dismiss()
+                            appendStatusLine(getString(R.string.aruco_found))
+                            heightLauncher.launch(HeightMeasureActivity.intent(this))
+                        }
+                    }
                     imageProxy.close()
                     return@setAnalyzer
                 }

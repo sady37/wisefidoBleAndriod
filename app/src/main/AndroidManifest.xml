@@ -27,6 +27,9 @@
     <!-- 二维码扫描相机权限 -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- 测高用 ARCore（可选：不支持的手机仍可安装，只是测高不可用） -->
+    <uses-feature android:name="android.hardware.camera.ar" android:required="false"/>
+
     <!-- BLE特性声明 -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -51,6 +54,20 @@
         <activity
             android:name="com.wisefido.ScanActivity"
             android:exported="false"/>
+
+        <activity
+            android:name="com.wisefido.measure.AngleMeasureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.NoActionBar"/>
+
+        <activity
+            android:name="com.wisefido.measure.HeightMeasureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.MaterialComponents.NoActionBar"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity"/>
+
+        <meta-data android:name="com.google.ar.core" android:value="optional"/>
     </application>
 
 </manifest>

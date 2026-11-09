@@ -12,8 +12,8 @@ android {
         minSdk = 28
         //noinspection EditedTargetSdkVersion
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.0"
+        versionCode = 6
+        versionName = "2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
+    implementation("com.google.ar:core:1.51.0")  // 盒底 ArUco 测高：世界位姿 + 重力 + 内参
 
 
     // 测试依赖

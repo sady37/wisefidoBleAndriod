@@ -41,6 +41,20 @@
                 android:layout_weight="1"
                 android:layout_height="1dp"/>
 
+            <!-- Measure：手机测角（扫描栏左侧） -->
+            <TextView
+                android:id="@+id/btn_measure"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:gravity="center"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="@string/btn_measure"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"/>
+
             <ImageButton
                 android:id="@+id/btn_qr_scan"
                 android:layout_width="36dp"
